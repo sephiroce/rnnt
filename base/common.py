@@ -10,6 +10,7 @@ class Constants:
   EMPTY = "__empty__"
   EPS = '<eps>'
   BLANK = '<blank>'
+  SPACE = '<space>'
   UNK = 'u'
   BOS = '<s>'
   EOS = '</s>'

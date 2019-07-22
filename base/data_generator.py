@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals
+# pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals, too-many-branches, too-many-statements
 
 """
 This is a customized version of an AudioGenerator class of lucko515.
@@ -19,7 +19,8 @@ RNG_SEED = 123
 
 class AudioGenerator:
   def __init__(self, logger, basepath, vocab, step=10, feat_dim=40,
-               minibatch_size=20, max_duration=20.0, sort_by_duration=False):
+               minibatch_size=20, max_duration=20.0, sort_by_duration=False,
+               is_char=False, is_bos_eos=True):
     """
     Params:
       step (int): Step size in milliseconds between windows (for spectrogram ONLY)
@@ -45,6 +46,8 @@ class AudioGenerator:
     self.minibatch_size = minibatch_size
     self.sort_by_duration = sort_by_duration
     self.vocab = vocab
+    self.is_char = is_char
+    self.is_bos_eos = is_bos_eos
 
     self.train_audio_paths = Constants.EMPTY
     self.train_durations = 0
@@ -83,9 +86,14 @@ class AudioGenerator:
     # calculate necessary sizes
     max_length = max([features[i].shape[0]
                       for i in range(0, self.minibatch_size)])
+
     # plus two for BOS and EOS
-    max_string_length = max([len(texts[cur_index+i].split(" ")) + 2
-                             for i in range(0, self.minibatch_size)])
+    if self.is_char:
+      max_string_length = max([len(texts[cur_index + i]) + 2 * self.is_bos_eos
+                               for i in range(0, self.minibatch_size)])
+    else:
+      max_string_length = max([len(texts[cur_index+i].split(" ")) + 2 * self.is_bos_eos
+                               for i in range(0, self.minibatch_size)])
 
     # initialize the arrays
     x_data = np.zeros([self.minibatch_size, max_length, self.feat_dim])
@@ -101,13 +109,28 @@ class AudioGenerator:
 
       # calculate labels & label_length
       int_seq = list()
-      int_seq.append(self.vocab[Constants.BOS])
-      for bpe in texts[cur_index+i].strip().split(" "):
-        if bpe in self.vocab:
-          int_seq.append(self.vocab[bpe])
-        else:
-          int_seq.append(self.vocab[Constants.UNK])
-      int_seq.append(self.vocab[Constants.EOS])
+
+      if self.is_bos_eos:
+        int_seq.append(self.vocab[Constants.BOS])
+
+      if self.is_char:
+        for char in texts[cur_index + i].strip():
+          if char in self.vocab:
+            int_seq.append(self.vocab[char])
+          elif char == ' ':
+            int_seq.append(self.vocab[Constants.SPACE])
+          else:
+            self.logger.error(texts[cur_index + i].strip())
+            int_seq.append(self.vocab[Constants.UNK])
+      else:
+        for bpe in texts[cur_index+i].strip().split(" "):
+          if bpe in self.vocab:
+            int_seq.append(self.vocab[bpe])
+          else:
+            int_seq.append(self.vocab[Constants.UNK])
+
+      if self.is_bos_eos:
+        int_seq.append(self.vocab[Constants.EOS])
 
       label = np.array(int_seq)
       labels[i, :len(label)] = label
