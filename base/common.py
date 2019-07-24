@@ -17,6 +17,7 @@ class Constants:
   DURATION = 'duration'
   KEY = 'key'
   TEXT = 'text'
+  LOG_FBANK = 'log_filterbank'
 
 class ExitCode:
   NO_DATA = 0

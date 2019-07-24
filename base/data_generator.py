@@ -10,7 +10,6 @@ them to the network for training or testing.
 """
 import json
 import random
-import soundfile as sf
 import numpy as np
 
 from base.common import Constants
@@ -18,7 +17,7 @@ from base.utils  import KmRNNTUtil as Util
 RNG_SEED = 123
 
 class AudioGenerator:
-  def __init__(self, logger, basepath, vocab, step=10, feat_dim=40,
+  def __init__(self, logger, basepath, vocab, step=10, feat_dim=13, window=20,
                minibatch_size=20, max_duration=20.0, sort_by_duration=False,
                is_char=False, is_bos_eos=True):
     """
@@ -35,6 +34,7 @@ class AudioGenerator:
     self.basepath = basepath
 
     self.feat_dim = feat_dim
+    #self.feat_dim = int(0.001 * window * 16000) + 1
     self.feats_mean = np.zeros((self.feat_dim,))
     self.feats_std = np.ones((self.feat_dim,))
     self.rng = random.Random(RNG_SEED)
@@ -276,8 +276,7 @@ class AudioGenerator:
     Params:
       audio_clip (str): Path to the audio clip
     """
-    data, _ = sf.read(self.basepath+"/"+audio_clip)
-    return Util.get_feats(data)
+    return Util.get_logfbank(self.basepath + "/" + audio_clip, self.feat_dim)
 
   def normalize(self, feature, eps=1e-14):
     """ Center a feature using the mean and std

@@ -2,7 +2,6 @@
 # pylint: disable=too-many-locals,
 
 import os
-import pickle
 import sys
 
 from keras import backend as k
@@ -13,6 +12,8 @@ from keras.layers import LSTM, Bidirectional, Dense, Activation, TimeDistributed
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
+import keras
+import numpy as np
 
 def ctc_lambda_func(args):
   y_pred, labels, input_length, label_length = args
@@ -33,44 +34,12 @@ def add_ctc_loss(input_to_softmax):
   return model
 
 def main():
-  os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-  logger = Logger(name="KmRNNT", level=Logger.DEBUG).logger
-
-  basepath = sys.argv[1]
-
-  minibatch_size = 100
+  os.environ["CUDA_VISIBLE_DEVICES"] = "1"
   feat_dim = 20
-  window = 20
-  optimizer = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-  epochs = 20
-  sort_by_duration = False
-  max_duration = 50.0
-  save_model_path = "tmp_ctc.ckpt"
-  pickle_path = "tmp_ctc.pkl"
-  vocab, _ = Util.load_vocab(sys.argv[2], is_char=True, is_bos_eos=False)
+  logger = Logger(name="KmRNNT_CTC_Decoder", level=Logger.DEBUG).logger
+  vocab, v = Util.load_vocab(sys.argv[2], is_char=True, is_bos_eos=False)
   output_dim = len(vocab)
-  cell_size = 300
-
-  # create a class instance for obtaining batches of data
-  audio_gen = AudioGenerator(logger, basepath=basepath, vocab=vocab,
-                             minibatch_size=minibatch_size, feat_dim=feat_dim, window=window,
-                             max_duration=max_duration,
-                             sort_by_duration=sort_by_duration,
-                             is_char=True, is_bos_eos=False)
-
-  # add the training data to the generator
-  audio_gen.load_train_data("%s/train_corpus.json"%basepath)
-  audio_gen.load_validation_data('%s/valid_corpus.json'%basepath)
-
-  # calculate steps_per_epoch
-  num_train_examples = len(audio_gen.train_audio_paths)
-  steps_per_epoch = num_train_examples//minibatch_size
-
-  # calculate validation_steps
-  num_valid_samples = len(audio_gen.valid_audio_paths)
-  validation_steps = num_valid_samples//minibatch_size
-
-  # Bidirectional CTC
+  cell_size= 300
 
   input_data = Input(name='the_input', shape=(None, feat_dim))
   # Add convolutional layer
@@ -91,32 +60,43 @@ def main():
 
   input_to_softmax = Model(inputs=input_data, outputs=y_pred)
   input_to_softmax.output_length = lambda x: x
+  input_to_softmax.summary()
 
   # add CTC loss to the NN specified in input_to_softmax
   model = add_ctc_loss(input_to_softmax)
 
   # CTC loss is implemented elsewhere, so use a dummy lambda function for the loss
+  optimizer = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
   model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=optimizer)
+  model.load_weights("results/tmp_ctc.ckpt")
   model.summary()
 
-  # make results/ directory, if necessary
-  if not os.path.exists('results'):
-    os.makedirs('results')
+  vocab, _ = Util.load_vocab(sys.argv[2], is_char=True, is_bos_eos=False)
+  eps = 1e-14
 
-  # add check_pointer
-  check_pointer = ModelCheckpoint(filepath='results/'+save_model_path, verbose=0)
+  # Get Features
+  feature = Util.get_logfbank(sys.argv[1],feat_dim)
+  feats_mean = np.load("/home/sephiroce/data/LDC/wsj/wsj.mean")
+  feats_std = np.load("/home/sephiroce/data/LDC/wsj/wsj.vari")
+#  feature = (feature - feats_mean) / (feats_std + eps)
+  feature = np.expand_dims(feature,axis=0)
+  print(feature)
+  # Batch decoding
+  predict=input_to_softmax.predict(feature)
+  print(predict)
+  print(len(predict[0]))
+  for vec in predict[0]:
+    if np.argmax(vec) != 29:
+      print(np.argmax(vec))
 
-  # train the model
-  hist = model.fit_generator(generator=audio_gen.next_train(),
-                             steps_per_epoch=steps_per_epoch,
-                             epochs=epochs,
-                             validation_data=audio_gen.next_valid(),
-                             validation_steps=validation_steps,
-                             callbacks=[check_pointer], verbose=1)
-
-  # save model loss
-  with open('results/'+pickle_path, 'wb') as file:
-    pickle.dump(hist.history, file)
+"""
+  line = ""
+  for i in range(1):
+    for word in decoded_sequences[0][i]:
+      line += v[word]
+#    print(line.replace("<space>", " "))
+    print("["+line+"]")
+"""
 
 if __name__ == "__main__":
   main()
