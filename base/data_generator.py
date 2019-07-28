@@ -17,7 +17,7 @@ from base.utils  import KmRNNTUtil as Util
 RNG_SEED = 123
 
 class AudioGenerator:
-  def __init__(self, logger, basepath, vocab, step=10, feat_dim=13, window=20,
+  def __init__(self, logger, basepath, vocab, step=10, feat_dim=13,
                minibatch_size=20, max_duration=20.0, sort_by_duration=False,
                is_char=False, is_bos_eos=True):
     """

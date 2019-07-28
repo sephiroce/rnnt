@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-arguments
 
 from python_speech_features import logfbank
 from python_speech_features import mfcc
-from base.common import Constants
 import soundfile as sf
 import numpy as np
+
+from base.common import Constants
 
 class KmRNNTUtil:
   @staticmethod

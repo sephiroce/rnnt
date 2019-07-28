@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-locals,
 
+"""ctc.py: Building CTC models for ASR tasks."""
+
+__author__ = "Kyungmin Lee"
+__email__ = "sephiroce@snu.ac.kr"
+
 import os
 import pickle
 import sys
 
 from keras import backend as k
-from keras.callbacks import ModelCheckpoint
 from keras.optimizers import SGD
 from keras.models import Model
 from keras.layers import LSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
@@ -14,107 +18,130 @@ from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
 
-def ctc_lambda_func(args):
-  y_pred, labels, input_length, label_length = args
-  return k.ctc_batch_cost(labels, y_pred, input_length, label_length)
+# Setting hyper-parameters
+epochs = 10
+minibatch_size = 200
+sort_by_duration = False
+max_duration = 50.0
+is_char = True
+is_bos_eos = False
 
-def add_ctc_loss(input_to_softmax):
-  the_labels = Input(name='the_labels', shape=(None,), dtype='float32')
-  input_lengths = Input(name='input_length', shape=(1,), dtype='int32')
-  label_lengths = Input(name='label_length', shape=(1,), dtype='int32')
-  output_lengths = Lambda(input_to_softmax.output_length)(input_lengths)
-  # output_length = BatchNormalization()(input_lengths)
-  # CTC loss is implemented in a lambda layer
-  loss_out = Lambda(ctc_lambda_func, output_shape=(1,), name='ctc')(
-      [input_to_softmax.output, the_labels, output_lengths, label_lengths])
-  model = Model(
-      inputs=[input_to_softmax.input, the_labels, input_lengths, label_lengths],
-      outputs=loss_out)
-  return model
+# Feature
+feat_dim = 40
+
+# Model architecture
+cell_size = 250
+optimizer = SGD(lr=1e-4, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+n_gpu = 2
+
+# Paths
+basepath = sys.argv[1]
+model_4_training_path = "ctc_loss.ckpt"
+model_4_decoding_path = "inference.ckpt"
+pickle_path = "tmp_ctc.pkl"
+
+class KMCTC:
+  @staticmethod
+  def ctc_lambda_func(args):
+    labels, y_pred, input_length, label_length = args
+    # the 2 is critical here since the first couple outputs of the RNN
+    # tend to be garbage:
+    shift = 2
+    y_pred = y_pred[:, shift:, :]
+    input_length -= shift
+    return k.ctc_batch_cost(labels, y_pred, input_length, label_length)
+
+  @staticmethod
+  def create_model(input_dim, output_dim, gpus=1):
+    """
+    this method creates a ctc model
+    please modify this method directly just like setting hyper-parameters for the models.
+    :param input_dim: feat_dim
+    :param output_dim: the number of vocabularies
+    :param gpus: the number of gpus
+    :return: a ctc model
+    """
+
+    # Bidirectional CTC
+    input_data = Input(name='the_input', shape=(None, input_dim))
+
+    blstm1 = Bidirectional(LSTM(cell_size, return_sequences=True,
+                                activation='relu'), merge_mode='concat')(input_data)
+    blstm2 = Bidirectional(LSTM(cell_size, return_sequences=True,
+                                activation='relu'), merge_mode='concat')(blstm1)
+    time_dense = TimeDistributed(Dense(output_dim))(blstm2)
+    y_pred = Activation('softmax', name='softmax')(time_dense)
+    model_4_decoding = Model(inputs=input_data, outputs=y_pred)
+
+    # add CTC loss to the model
+    label = Input(name='the_labels', shape=(None,), dtype='float32')
+    input_length = Input(name='input_length', shape=(1,), dtype='int32')
+    label_length = Input(name='label_length', shape=(1,), dtype='int32')
+    output_length = Lambda(lambda x: x)(input_length)
+
+    loss_out = Lambda(KMCTC.ctc_lambda_func, output_shape=(1,), name='ctc')(
+        [label, model_4_decoding.output, output_length, label_length])
+
+    # creating a model
+    model_4_training_4_saving = Model(
+        inputs=[model_4_decoding.input, label, input_length, label_length],
+        outputs=loss_out)
+
+    # multi gpu
+    if gpus >= 2:
+      from keras.utils.training_utils import multi_gpu_model
+      model_4_training = multi_gpu_model(model_4_training_4_saving, gpus=gpus)
+    else:
+      model_4_training = model_4_training_4_saving
+    # compiling a model
+    model_4_training.compile(loss={'ctc': lambda y_true, y_pred: y_pred},
+                             optimizer=optimizer)
+    return model_4_decoding, model_4_training_4_saving, model_4_training
 
 def main():
-  os.environ["CUDA_VISIBLE_DEVICES"] = "0"
   logger = Logger(name="KmRNNT", level=Logger.DEBUG).logger
-
-  basepath = sys.argv[1]
-
-  minibatch_size = 100
-  feat_dim = 20
-  window = 20
-  optimizer = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-  epochs = 20
-  sort_by_duration = False
-  max_duration = 50.0
-  save_model_path = "tmp_ctc.ckpt"
-  pickle_path = "tmp_ctc.pkl"
-  vocab, _ = Util.load_vocab(sys.argv[2], is_char=True, is_bos_eos=False)
-  output_dim = len(vocab)
-  cell_size = 300
+  vocab, _ = Util.load_vocab(sys.argv[2], is_char=is_char,
+                             is_bos_eos=is_bos_eos)
 
   # create a class instance for obtaining batches of data
   audio_gen = AudioGenerator(logger, basepath=basepath, vocab=vocab,
-                             minibatch_size=minibatch_size, feat_dim=feat_dim, window=window,
+                             minibatch_size=minibatch_size, feat_dim=feat_dim,
                              max_duration=max_duration,
                              sort_by_duration=sort_by_duration,
-                             is_char=True, is_bos_eos=False)
+                             is_char=is_char, is_bos_eos=is_bos_eos)
 
   # add the training data to the generator
   audio_gen.load_train_data("%s/train_corpus.json"%basepath)
   audio_gen.load_validation_data('%s/valid_corpus.json'%basepath)
 
-  # calculate steps_per_epoch
-  num_train_examples = len(audio_gen.train_audio_paths)
-  steps_per_epoch = num_train_examples//minibatch_size
-
-  # calculate validation_steps
-  num_valid_samples = len(audio_gen.valid_audio_paths)
-  validation_steps = num_valid_samples//minibatch_size
-
-  # Bidirectional CTC
-
-  input_data = Input(name='the_input', shape=(None, feat_dim))
-  # Add convolutional layer
-  """
-  conv_1d = Conv1D(filters, kernel_size,
-                   strides=conv_stride,
-                   padding=conv_border_mode,
-                   activation='relu',
-                   name='conv1d')(input_data)
-  # Add batch normalization
-  bn_cnn = BatchNormalization(name='bn_conv_1d')(conv_1d)
-  """
-  bidir_rnn = Bidirectional(LSTM(cell_size, return_sequences=True,
-                                 activation='relu'), merge_mode='concat')\
-    (input_data)
-  time_dense = TimeDistributed(Dense(output_dim))(bidir_rnn)
-  y_pred = Activation('softmax', name='softmax')(time_dense)
-
-  input_to_softmax = Model(inputs=input_data, outputs=y_pred)
-  input_to_softmax.output_length = lambda x: x
-
-  # add CTC loss to the NN specified in input_to_softmax
-  model = add_ctc_loss(input_to_softmax)
-
-  # CTC loss is implemented elsewhere, so use a dummy lambda function for the loss
-  model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=optimizer)
-  model.summary()
+  model_4_decoding, model_4_training_4_saving, model_4_training = \
+    KMCTC.create_model(input_dim=feat_dim,
+                       output_dim=len(vocab),
+                       gpus=n_gpu)
+  logger.info("Model Summary")
+  model_4_training_4_saving.summary()
 
   # make results/ directory, if necessary
   if not os.path.exists('results'):
     os.makedirs('results')
 
-  # add check_pointer
-  check_pointer = ModelCheckpoint(filepath='results/'+save_model_path, verbose=0)
-
   # train the model
-  hist = model.fit_generator(generator=audio_gen.next_train(),
-                             steps_per_epoch=steps_per_epoch,
-                             epochs=epochs,
-                             validation_data=audio_gen.next_valid(),
-                             validation_steps=validation_steps,
-                             callbacks=[check_pointer], verbose=1)
+  train_batch_size = (len(audio_gen.train_audio_paths)//minibatch_size)
+  valid_batch_size = (len(audio_gen.valid_audio_paths)//minibatch_size)
+  hist = model_4_training.fit_generator(generator=audio_gen.next_train(),
+                                        steps_per_epoch=train_batch_size,
+                                        epochs=epochs,
+                                        validation_data=audio_gen.next_valid(),
+                                        validation_steps=valid_batch_size,
+                                        verbose=1)
 
-  # save model loss
+  # saving model
+  train_path = "results/%s"%model_4_training_path
+  infer_path = "results/%s"%model_4_decoding_path
+  logger.info("Saved to %s, %s", train_path, infer_path)
+  model_4_training_4_saving.save(train_path)
+  model_4_decoding.save(infer_path)
+
   with open('results/'+pickle_path, 'wb') as file:
     pickle.dump(hist.history, file)
 

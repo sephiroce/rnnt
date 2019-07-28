@@ -9,8 +9,8 @@ class Constants:
   EVALUATION = "Test"
   EMPTY = "__empty__"
   EPS = '<eps>'
-  BLANK = '<blank>'
-  SPACE = '<space>'
+  BLANK = 'blank'
+  SPACE = 'space'
   UNK = 'u'
   BOS = '<s>'
   EOS = '</s>'
@@ -28,7 +28,6 @@ class ExitCode:
   INVALID_NAME_OF_CONFIGURATION_FILE = 14
   INVALID_FILE_PATH = 15
   INVALID_DICTIONARY = 16
-
 
 class Logger:
   """
