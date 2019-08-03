@@ -25,7 +25,7 @@ def main():
   model, _, _ = \
   km_ctc.create_model(input_dim=feat_dim, output_dim=len(vocab))
 
-  model.load_weights("results/inference")
+  model.load_weights("results/inference.new.ckpt")
   model.summary()
 
   audio_gen = AudioGenerator(logger, basepath=basepath, vocab=vocab,

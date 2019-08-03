@@ -34,7 +34,6 @@ class AudioGenerator:
     self.basepath = basepath
 
     self.feat_dim = feat_dim
-    #self.feat_dim = int(0.001 * window * 16000) + 1
     self.feats_mean = np.zeros((self.feat_dim,))
     self.feats_std = np.ones((self.feat_dim,))
     self.rng = random.Random(RNG_SEED)
@@ -276,14 +275,15 @@ class AudioGenerator:
     Params:
       audio_clip (str): Path to the audio clip
     """
-    return Util.get_logfbank(self.basepath + "/" + audio_clip, self.feat_dim)
+    mfcc, _ = Util.mfcc_features(self.basepath + "/" + audio_clip)
+    return mfcc
 
   def normalize(self, feature, eps=1e-14):
     """ Center a feature using the mean and std
     Params:
       feature (numpy.ndarray): Feature to normalize
     """
-    return (feature - self.feats_mean) / (self.feats_std + eps)
+    return (feature - self.feats_mean + eps) / (self.feats_std + eps)
 
 def shuffle_data(audio_paths, durations, texts):
   """ Shuffle the data (called after making a complete pass through

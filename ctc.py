@@ -19,10 +19,10 @@ from base.common import Logger
 from base.data_generator import AudioGenerator
 
 # Setting hyper-parameters
-epochs = 10
-minibatch_size = 200
+epochs = 1
+minibatch_size = 150
 sort_by_duration = False
-max_duration = 50.0
+max_duration = 20.0
 is_char = True
 is_bos_eos = False
 
@@ -30,15 +30,15 @@ is_bos_eos = False
 feat_dim = 40
 
 # Model architecture
-cell_size = 250
+cell_size = 300
 optimizer = SGD(lr=1e-4, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
 n_gpu = 2
 
 # Paths
 basepath = sys.argv[1]
-model_4_training_path = "ctc_loss.ckpt"
-model_4_decoding_path = "inference.ckpt"
-pickle_path = "tmp_ctc.pkl"
+model_4_training_path = "ctc_loss.new.ckpt"
+model_4_decoding_path = "inference.new.ckpt"
+pickle_path = "tmp_ctc.new.pkl"
 
 class KMCTC:
   @staticmethod
