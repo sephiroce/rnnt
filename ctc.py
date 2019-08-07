@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-locals,
+#pylint: disable=too-many-locals,
 
 """ctc.py: Building CTC models for ASR tasks."""
 
@@ -7,22 +7,24 @@ __author__ = "Kyungmin Lee"
 __email__ = "sephiroce@snu.ac.kr"
 
 import os
+import pandas as pd
 import pickle
 import sys
+import numpy as np
 
 from keras import backend as k
 from keras.optimizers import SGD
 from keras.models import Model
-from keras.layers import LSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
+from keras.layers import Flatten, Conv2D, MaxPooling2D, BatchNormalization, CuDNNLSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
 
 # Setting hyper-parameters
-epochs = 1
-minibatch_size = 150
+epochs = 3
+minibatch_size = 80
 sort_by_duration = False
-max_duration = 20.0
+max_duration = 50.0
 is_char = True
 is_bos_eos = False
 
@@ -31,13 +33,16 @@ feat_dim = 40
 
 # Model architecture
 cell_size = 300
-optimizer = SGD(lr=1e-4, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-n_gpu = 2
+optimizer = SGD(lr=1e-5, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+#optimizer = SGD(lr=1e-4, decay=1e-5, momentum=0.0, nesterov=False)
+n_gpu = 1
 
 # Paths
 basepath = sys.argv[1]
-model_4_training_path = "ctc_loss.new.ckpt"
-model_4_decoding_path = "inference.new.ckpt"
+model_4_training_json = "ctc_loss.new.json"
+model_4_decoding_json = "inference.new.json"
+model_4_training_h5 = "ctc_loss.new.h5"
+model_4_decoding_h5 = "inference.new.h5"
 pickle_path = "tmp_ctc.new.pkl"
 
 class KMCTC:
@@ -65,11 +70,11 @@ class KMCTC:
     # Bidirectional CTC
     input_data = Input(name='the_input', shape=(None, input_dim))
 
-    blstm1 = Bidirectional(LSTM(cell_size, return_sequences=True,
-                                activation='relu'), merge_mode='concat')(input_data)
-    blstm2 = Bidirectional(LSTM(cell_size, return_sequences=True,
-                                activation='relu'), merge_mode='concat')(blstm1)
-    time_dense = TimeDistributed(Dense(output_dim))(blstm2)
+    blstm1 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True
+                                ), merge_mode='concat')(input_data)
+    blstm2 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True
+                                ), merge_mode='concat')(blstm1)
+    time_dense = TimeDistributed(Dense(output_dim + 1))(blstm2)
     y_pred = Activation('softmax', name='softmax')(time_dense)
     model_4_decoding = Model(inputs=input_data, outputs=y_pred)
 
@@ -83,25 +88,25 @@ class KMCTC:
         [label, model_4_decoding.output, output_length, label_length])
 
     # creating a model
-    model_4_training_4_saving = Model(
+    model = Model(
         inputs=[model_4_decoding.input, label, input_length, label_length],
         outputs=loss_out)
 
     # multi gpu
     if gpus >= 2:
       from keras.utils.training_utils import multi_gpu_model
-      model_4_training = multi_gpu_model(model_4_training_4_saving, gpus=gpus)
-    else:
-      model_4_training = model_4_training_4_saving
+      model = multi_gpu_model(model, gpus=gpus)
+    
     # compiling a model
-    model_4_training.compile(loss={'ctc': lambda y_true, y_pred: y_pred},
+    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred},
                              optimizer=optimizer)
-    return model_4_decoding, model_4_training_4_saving, model_4_training
+    return model_4_decoding, model
 
 def main():
   logger = Logger(name="KmRNNT", level=Logger.DEBUG).logger
   vocab, _ = Util.load_vocab(sys.argv[2], is_char=is_char,
                              is_bos_eos=is_bos_eos)
+  logger.info("The number of vocabularies is %d"%len(vocab))
 
   # create a class instance for obtaining batches of data
   audio_gen = AudioGenerator(logger, basepath=basepath, vocab=vocab,
@@ -113,13 +118,14 @@ def main():
   # add the training data to the generator
   audio_gen.load_train_data("%s/train_corpus.json"%basepath)
   audio_gen.load_validation_data('%s/valid_corpus.json'%basepath)
+  audio_gen.load_test_data("%s/test_corpus.json"%basepath)
 
-  model_4_decoding, model_4_training_4_saving, model_4_training = \
+  model_4_decoding, model_4_training = \
     KMCTC.create_model(input_dim=feat_dim,
                        output_dim=len(vocab),
                        gpus=n_gpu)
   logger.info("Model Summary")
-  model_4_training_4_saving.summary()
+  model_4_training.summary()
 
   # make results/ directory, if necessary
   if not os.path.exists('results'):
@@ -136,11 +142,18 @@ def main():
                                         verbose=1)
 
   # saving model
-  train_path = "results/%s"%model_4_training_path
-  infer_path = "results/%s"%model_4_decoding_path
-  logger.info("Saved to %s, %s", train_path, infer_path)
-  model_4_training_4_saving.save(train_path)
-  model_4_decoding.save(infer_path)
+  infer_json = "results/%s"%model_4_decoding_json
+  infer_h5 = "results/%s"%model_4_decoding_h5
+  model_json = model_4_decoding.to_json()
+  with open(infer_json, "w") as json_file:
+    json_file.write(model_json)
+  model_4_decoding.save_weights(infer_h5)
+  logger.info("Saved to %s, %s", infer_json, infer_h5)
+
+  y_pred_proba = model_4_decoding.predict_generator(generator=audio_gen.next_test(),
+          steps=1, verbose=1)
+  for i, pred in enumerate(y_pred_proba):
+      np.savetxt("tmp%s.np"%i, pred)
 
   with open('results/'+pickle_path, 'wb') as file:
     pickle.dump(hist.history, file)
