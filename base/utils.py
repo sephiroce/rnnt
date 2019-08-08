@@ -127,9 +127,6 @@ class KmRNNTUtil:
     if is_char:
       id_to_word.append(Constants.SPACE)
 
-    # reserve for a blank symbol
-#id_to_word.append(Constants.BLANK)
-
     # for making a word dictionary
     for i, word in enumerate(id_to_word):
       word_to_id[word] = i

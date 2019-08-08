@@ -1,20 +1,15 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-locals,
 
-import os
 import sys
 
+from keras.models import model_from_json
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
-from ctc import KMCTC as km_ctc
-from keras.models import model_from_json
-import tensorflow as tf
-import numpy as np
-from keras import backend as k 
+from ctc import KMCTC
 
 def main():
-  os.environ["CUDA_VISIBLE_DEVICES"] = "1"
   logger = Logger(name="KmRNNT_CTC_Decoder", level=Logger.DEBUG).logger
 
   # Options
@@ -42,31 +37,9 @@ def main():
 
   # add the training data to the generator
   audio_gen.load_test_data("%s/test_corpus.json"%basepath)
-  y_pred_proba = model.predict_generator(generator=audio_gen.next_test(),
-                                         steps=1, verbose=1)
-  input_length = list()
-  for y in y_pred_proba:
-    input_length.append(len(y))
-
-  results = \
-    tf.keras.backend.ctc_decode(y_pred_proba,
-            input_length = input_length, 
-            greedy=True, 
-            beam_width=12,
-            top_paths=1)
-  sess = tf.Session()
-  with sess.as_default():
-    results_arr = k.get_value(results[0][0])
-    for sent_arr in results_arr:
-      sent=""
-      for char in sent_arr:
-        if char < 0 :
-          break
-        if char == len(vocab) - 1:
-          sent += " "
-        else:
-          sent += id_to_word[char]
-      print(sent)
+  utts = model.predict_generator(generator=audio_gen.next_test(), steps=1,
+                                 verbose=1)
+  KMCTC.print_result(logger, utts, id_to_word)
 
 if __name__ == "__main__":
   main()

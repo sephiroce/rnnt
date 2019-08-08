@@ -7,21 +7,19 @@ __author__ = "Kyungmin Lee"
 __email__ = "sephiroce@snu.ac.kr"
 
 import os
-import pandas as pd
 import pickle
 import sys
-import numpy as np
 
-from keras import backend as k
 from keras.optimizers import SGD
 from keras.models import Model
-from keras.layers import Flatten, Conv2D, MaxPooling2D, BatchNormalization, CuDNNLSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
+from keras.layers import CuDNNLSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
+from base.common import Constants
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
 
 # Setting hyper-parameters
-epochs = 3
+epochs = 10
 minibatch_size = 80
 sort_by_duration = False
 max_duration = 50.0
@@ -33,28 +31,56 @@ feat_dim = 40
 
 # Model architecture
 cell_size = 300
-optimizer = SGD(lr=1e-5, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-#optimizer = SGD(lr=1e-4, decay=1e-5, momentum=0.0, nesterov=False)
+optimizer = SGD(lr=1e-4, decay=1e-5, momentum=0.9, nesterov=True, clipnorm=5)
 n_gpu = 1
 
 # Paths
 basepath = sys.argv[1]
-model_4_training_json = "ctc_loss.new.json"
 model_4_decoding_json = "inference.new.json"
-model_4_training_h5 = "ctc_loss.new.h5"
 model_4_decoding_h5 = "inference.new.h5"
 pickle_path = "tmp_ctc.new.pkl"
 
 class KMCTC:
   @staticmethod
+  def print_result(logger, utts, id_to_word):
+    for i, utt in enumerate(utts):
+      sent = ""
+      for char in utt:
+        if char < 0:
+          break
+        if int(char) == len(id_to_word) - 1:
+          sent += " "
+        else:
+          sent += id_to_word[int(char)]
+      logger.info("%d: %s" % (i, sent))
+
+  @staticmethod
   def ctc_lambda_func(args):
-    labels, y_pred, input_length, label_length = args
+    y_pred, labels, input_length, label_length = args
     # the 2 is critical here since the first couple outputs of the RNN
     # tend to be garbage:
     shift = 2
     y_pred = y_pred[:, shift:, :]
     input_length -= shift
+    from keras import backend as k
     return k.ctc_batch_cost(labels, y_pred, input_length, label_length)
+
+  @staticmethod
+  def ctc_complete_decoding_lambda_func(args, **arguments):
+    """
+    borrowed from https://github.com/ysoullard/CTCModel/blob/master/CTCModel.py
+    :param args:
+    :param arguments:
+    :return:
+    """
+    y_pred, input_length = args
+    my_params = arguments
+    from keras import backend as k
+    return k.cast(k.ctc_decode(y_pred, k.squeeze(input_length, 1),
+                               greedy=my_params['greedy'],
+                               beam_width=my_params['beam_width'],
+                               top_paths=my_params['top_paths'])[0][0],
+                  dtype='float32')
 
   @staticmethod
   def create_model(input_dim, output_dim, gpus=1):
@@ -68,45 +94,52 @@ class KMCTC:
     """
 
     # Bidirectional CTC
-    input_data = Input(name='the_input', shape=(None, input_dim))
+    input_data = Input(name=Constants.KEY_INPUT, shape=(None, input_dim))
 
-    blstm1 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True
-                                ), merge_mode='concat')(input_data)
-    blstm2 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True
-                                ), merge_mode='concat')(blstm1)
+    blstm1 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
+                           merge_mode='concat')(input_data)
+    blstm2 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
+                           merge_mode='concat')(blstm1)
     time_dense = TimeDistributed(Dense(output_dim + 1))(blstm2)
     y_pred = Activation('softmax', name='softmax')(time_dense)
-    model_4_decoding = Model(inputs=input_data, outputs=y_pred)
 
     # add CTC loss to the model
-    label = Input(name='the_labels', shape=(None,), dtype='float32')
-    input_length = Input(name='input_length', shape=(1,), dtype='int32')
-    label_length = Input(name='label_length', shape=(1,), dtype='int32')
-    output_length = Lambda(lambda x: x)(input_length)
+    label = Input(name=Constants.KEY_LABEL, shape=[None])
+    input_length = Input(name=Constants.KEY_INLEN, shape=[1])
+    label_length = Input(name=Constants.KEY_LBLEN, shape=[1])
 
-    loss_out = Lambda(KMCTC.ctc_lambda_func, output_shape=(1,), name='ctc')(
-        [label, model_4_decoding.output, output_length, label_length])
+    loss_out = Lambda(KMCTC.ctc_lambda_func, output_shape=(1,), name=Constants.KEY_CTCLS)\
+      ([y_pred] + [label, input_length, label_length])
+
+    out_decoded_dense = Lambda(KMCTC.ctc_complete_decoding_lambda_func,
+                               output_shape=(None, None), name='CTCdecode',
+                               arguments={'greedy': False,
+                                          'beam_width': 12,
+                                          'top_paths': 1},
+                               dtype="float32")\
+      ([y_pred] + [input_length])
 
     # creating a model
-    model = Model(
-        inputs=[model_4_decoding.input, label, input_length, label_length],
-        outputs=loss_out)
+    model = Model(inputs=[input_data] + [label, input_length, label_length],
+                  outputs=loss_out)
+    model_4_decoding = Model(inputs=[input_data] + [input_length],
+                             outputs=out_decoded_dense)
 
     # multi gpu
     if gpus >= 2:
       from keras.utils.training_utils import multi_gpu_model
       model = multi_gpu_model(model, gpus=gpus)
-    
+
     # compiling a model
-    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred},
-                             optimizer=optimizer)
+    model.compile(loss={Constants.KEY_CTCLS: lambda y_true, y_pred: y_pred}, optimizer=optimizer)
+    model_4_decoding.compile(loss={'CTCdecode': lambda y_true, y_pred: y_pred}, optimizer=optimizer)
     return model_4_decoding, model
 
 def main():
   logger = Logger(name="KmRNNT", level=Logger.DEBUG).logger
-  vocab, _ = Util.load_vocab(sys.argv[2], is_char=is_char,
-                             is_bos_eos=is_bos_eos)
-  logger.info("The number of vocabularies is %d"%len(vocab))
+  vocab, id_to_word = Util.load_vocab(sys.argv[2], is_char=is_char,
+                                      is_bos_eos=is_bos_eos)
+  logger.info("The number of vocabularies is %d", len(vocab))
 
   # create a class instance for obtaining batches of data
   audio_gen = AudioGenerator(logger, basepath=basepath, vocab=vocab,
@@ -140,6 +173,7 @@ def main():
                                         validation_data=audio_gen.next_valid(),
                                         validation_steps=valid_batch_size,
                                         verbose=1)
+  model_4_decoding.set_weights(model_4_training.get_weights())
 
   # saving model
   infer_json = "results/%s"%model_4_decoding_json
@@ -150,10 +184,9 @@ def main():
   model_4_decoding.save_weights(infer_h5)
   logger.info("Saved to %s, %s", infer_json, infer_h5)
 
-  y_pred_proba = model_4_decoding.predict_generator(generator=audio_gen.next_test(),
-          steps=1, verbose=1)
-  for i, pred in enumerate(y_pred_proba):
-      np.savetxt("tmp%s.np"%i, pred)
+  utts = model_4_decoding.predict_generator(generator=audio_gen.next_test(),
+                                            steps=1, verbose=1)
+  KMCTC.print_result(logger, utts, id_to_word)
 
   with open('results/'+pickle_path, 'wb') as file:
     pickle.dump(hist.history, file)

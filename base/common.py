@@ -19,6 +19,12 @@ class Constants:
   TEXT = 'text'
   LOG_FBANK = 'log_filterbank'
 
+  KEY_INPUT = 'KMRNNT_INPUT_SPEECH'
+  KEY_LABEL = 'KMRNNT_INPUT_LABELS'
+  KEY_INLEN = 'KMRNNT_INPUT_LENGTH'
+  KEY_LBLEN = 'KMRNNT_LABEL_LENGTH'
+  KEY_CTCLS = 'KMRNNT_____CTC_LOSS'
+
 class ExitCode:
   NO_DATA = 0
   NOT_SUPPORTED = 1

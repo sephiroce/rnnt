@@ -136,11 +136,11 @@ class AudioGenerator:
       label_length[i] = len(label)
 
     # return the arrays
-    outputs = {'ctc': np.zeros([self.minibatch_size])}
-    inputs = {'the_input': x_data,
-              'the_labels': labels,
-              'input_length': input_length,
-              'label_length': label_length
+    outputs = {Constants.KEY_CTCLS: np.zeros([self.minibatch_size])}
+    inputs = {Constants.KEY_INPUT: x_data,
+              Constants.KEY_LABEL: labels,
+              Constants.KEY_INLEN: input_length,
+              Constants.KEY_LBLEN: label_length
               }
     return inputs, outputs
 
