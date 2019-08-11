@@ -12,8 +12,10 @@ import json
 import random
 import numpy as np
 
+import scipy.io.wavfile as wav
+from python_speech_features import mfcc
 from base.common import Constants
-from base.utils import KmRNNTUtil as Util
+
 
 RNG_SEED = 123
 
@@ -279,10 +281,10 @@ class AudioGenerator:
     Params:
       audio_clip (str): Path to the audio clip
     """
-    mfcc, _ = Util.mfcc_features(self.basepath + "/" + audio_clip, num_ceps=self.mfcc_dim)
-    return mfcc
-#    (rate, sig) = wav.read(self.basepath + "/" + audio_clip)
-#    return mfcc(sig, rate, numcep=self.mfcc_dim)
+#    mfcc, _ = Util.mfcc_features(self.basepath + "/" + audio_clip, num_ceps=self.mfcc_dim)
+#    return mfcc
+    (rate, sig) = wav.read(self.basepath + "/" + audio_clip)
+    return mfcc(sig, rate, numcep=self.mfcc_dim)
 
   def normalize(self, feature, eps=1e-14):
     """ Center a feature using the mean and std

@@ -20,8 +20,8 @@ from base.common import Logger
 from base.data_generator import AudioGenerator
 
 # Setting hyper-parameters
-epochs = 5
-minibatch_size = 20
+epochs = 50
+minibatch_size = 25
 sort_by_duration = False
 max_duration = 50.0
 is_char = True
@@ -183,13 +183,6 @@ def main():
                                         verbose=1)
   model_4_decoding.set_weights(model_4_training.get_weights())
 
-  # testing the model
-  for i, val in enumerate(audio_gen.next_test()):
-    if i == len(audio_gen.test_audio_paths):
-      break
-    result = KMCTC.get_result_str(model_4_decoding.predict(val[0]), id_to_word)
-    print("UTT%03d: %s"%(i+1, result))
-
   # saving the model
   infer_json = "results/%s"%model_4_decoding_json
   infer_h5 = "results/%s"%model_4_decoding_h5
@@ -199,8 +192,16 @@ def main():
   model_4_decoding.save_weights(infer_h5)
   logger.info("Saved to %s, %s", infer_json, infer_h5)
 
+  # saving pickle_path
   with open('results/'+pickle_path, 'wb') as file:
     pickle.dump(hist.history, file)
+
+  # testing the model
+  for i, val in enumerate(audio_gen.next_test()):
+    if i == len(audio_gen.test_audio_paths):
+      break
+    result = KMCTC.get_result_str(model_4_decoding.predict(val[0]), id_to_word)
+    print("UTT%03d: %s"%(i+1, result))
 
 if __name__ == "__main__":
   main()
