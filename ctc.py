@@ -19,20 +19,32 @@ from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
 
+is_big = True
+
 # Setting hyper-parameters
-epochs = 50
-minibatch_size = 25
+layers = -1
+cell_size = -1
+if is_big:
+  epochs = 50
+  minibatch_size = 25
+  layers = 5
+  cell_size = 500
+  optimizer = SGD(lr=1e-4, decay=1e-8, momentum=0.9, nesterov=True, clipnorm=5)
+else:
+  epochs = 2
+  minibatch_size = 80
+  layers = 2
+  cell_size = 300
+  optimizer = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+
 sort_by_duration = False
 max_duration = 50.0
 is_char = True
 is_bos_eos = False
-layers = 5
+
 # Feature
 mfcc_dim = 20
 
-# Model architecture
-cell_size = 500
-optimizer = SGD(lr=1e-4, decay=1e-8, momentum=0.9, nesterov=True, clipnorm=5)
 n_gpu = 1
 
 # Paths
@@ -143,8 +155,8 @@ class KMCTC:
 
 def main():
   logger = Logger(name="KmRNNT", level=Logger.DEBUG).logger
-  vocab, id_to_word = Util.load_vocab(sys.argv[2], is_char=is_char,
-                                      is_bos_eos=is_bos_eos)
+  vocab, _ = Util.load_vocab(sys.argv[2], is_char=is_char,
+                             is_bos_eos=is_bos_eos)
   logger.info("The number of vocabularies is %d", len(vocab))
 
   # create a class instance for obtaining batches of data
@@ -195,13 +207,6 @@ def main():
   # saving pickle_path
   with open('results/'+pickle_path, 'wb') as file:
     pickle.dump(hist.history, file)
-
-  # testing the model
-  for i, val in enumerate(audio_gen.next_test()):
-    if i == len(audio_gen.test_audio_paths):
-      break
-    result = KMCTC.get_result_str(model_4_decoding.predict(val[0]), id_to_word)
-    print("UTT%03d: %s"%(i+1, result))
 
 if __name__ == "__main__":
   main()

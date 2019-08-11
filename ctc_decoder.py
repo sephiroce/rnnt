@@ -18,12 +18,12 @@ def main():
 
   vocab, id_to_word = Util.load_vocab(sys.argv[2], is_char=True, is_bos_eos=False)
 
-  json_file = open("results/inference.new.json", "r")
+  json_file = open("results/inference.mfcc20.layer2_300.json", "r")
   loaded_model_json = json_file.read()
   json_file.close()
 
   model = model_from_json(loaded_model_json)
-  model.load_weights("results/inference.new.h5")
+  model.load_weights("results/inference.mfcc20.layer2_300.h5")
   model.summary()
 
   audio_gen = AudioGenerator(logger,
