@@ -13,11 +13,12 @@ import random
 import numpy as np
 
 from base.common import Constants
-from base.utils  import KmRNNTUtil as Util
+from base.utils import KmRNNTUtil as Util
+
 RNG_SEED = 123
 
 class AudioGenerator:
-  def __init__(self, logger, basepath, vocab, step=10, feat_dim=13,
+  def __init__(self, logger, basepath, vocab, step=10, mfcc_dim=20,
                minibatch_size=20, max_duration=20.0, sort_by_duration=False,
                is_char=False, is_bos_eos=True):
     """
@@ -33,9 +34,12 @@ class AudioGenerator:
     self.logger = logger
     self.basepath = basepath
 
-    self.feat_dim = feat_dim
-    self.feats_mean = np.zeros((self.feat_dim,))
-    self.feats_std = np.ones((self.feat_dim,))
+    self.window = 20
+    self.max_freq = 16000
+    self.feat_dim = int(0.001 * self.window * self.max_freq) + 1
+    self.mfcc_dim = mfcc_dim
+    self.feats_mean = np.zeros((self.feat_dim,)) #321
+    self.feats_std = np.ones((self.feat_dim,))   #321
     self.rng = random.Random(RNG_SEED)
     self.step = step
     self.cur_train_index = 0
@@ -88,14 +92,14 @@ class AudioGenerator:
 
     # plus two for BOS and EOS
     if self.is_char:
-      max_string_length = max([len(texts[cur_index + i]) + 2 * self.is_bos_eos
+      max_string_length = max([len(texts[cur_index + i]) + (2 * self.is_bos_eos)
                                for i in range(0, self.minibatch_size)])
     else:
-      max_string_length = max([len(texts[cur_index+i].split(" ")) + 2 * self.is_bos_eos
+      max_string_length = max([len(texts[cur_index+i].split(" ")) + (2 * self.is_bos_eos)
                                for i in range(0, self.minibatch_size)])
 
     # initialize the arrays
-    x_data = np.zeros([self.minibatch_size, max_length, self.feat_dim])
+    x_data = np.zeros([self.minibatch_size, max_length, self.mfcc_dim])
     labels = np.ones([self.minibatch_size, max_string_length]) * len(self.vocab)
     input_length = np.zeros([self.minibatch_size, 1])
     label_length = np.zeros([self.minibatch_size, 1])
@@ -141,7 +145,7 @@ class AudioGenerator:
               Constants.KEY_LABEL: labels,
               Constants.KEY_INLEN: input_length,
               Constants.KEY_LBLEN: label_length
-              }
+             }
     return inputs, outputs
 
   def shuffle_data_by_partition(self, partition):
@@ -177,7 +181,7 @@ class AudioGenerator:
     while True:
       ret = self.get_batch(Constants.TRAINING)
       self.cur_train_index += self.minibatch_size
-      if self.cur_train_index >= len(self.train_texts) - self.minibatch_size:
+      if self.cur_train_index > len(self.train_texts) - self.minibatch_size:
         self.cur_train_index = 0
         self.shuffle_data_by_partition(Constants.TRAINING)
       yield ret
@@ -188,7 +192,7 @@ class AudioGenerator:
     while True:
       ret = self.get_batch(Constants.VALIDATION)
       self.cur_valid_index += self.minibatch_size
-      if self.cur_valid_index >= len(self.valid_texts) - self.minibatch_size:
+      if self.cur_valid_index > len(self.valid_texts) - self.minibatch_size:
         self.cur_valid_index = 0
         self.shuffle_data_by_partition(Constants.VALIDATION)
       yield ret
@@ -199,7 +203,7 @@ class AudioGenerator:
     while True:
       ret = self.get_batch(Constants.EVALUATION)
       self.cur_test_index += self.minibatch_size
-      if self.cur_test_index >= len(self.test_texts) - self.minibatch_size:
+      if self.cur_test_index > len(self.test_texts) - self.minibatch_size:
         self.cur_test_index = 0
       yield ret
 
@@ -275,8 +279,10 @@ class AudioGenerator:
     Params:
       audio_clip (str): Path to the audio clip
     """
-    mfcc, _ = Util.mfcc_features(self.basepath + "/" + audio_clip)
+    mfcc, _ = Util.mfcc_features(self.basepath + "/" + audio_clip, num_ceps=self.mfcc_dim)
     return mfcc
+#    (rate, sig) = wav.read(self.basepath + "/" + audio_clip)
+#    return mfcc(sig, rate, numcep=self.mfcc_dim)
 
   def normalize(self, feature, eps=1e-14):
     """ Center a feature using the mean and std

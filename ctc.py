@@ -19,7 +19,7 @@ from base.common import Logger
 from base.data_generator import AudioGenerator
 
 # Setting hyper-parameters
-epochs = 10
+epochs = 5
 minibatch_size = 80
 sort_by_duration = False
 max_duration = 50.0
@@ -27,32 +27,32 @@ is_char = True
 is_bos_eos = False
 
 # Feature
-feat_dim = 40
+mfcc_dim = 20
 
 # Model architecture
 cell_size = 300
-optimizer = SGD(lr=1e-4, decay=1e-5, momentum=0.9, nesterov=True, clipnorm=5)
+optimizer = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
 n_gpu = 1
 
 # Paths
 basepath = sys.argv[1]
-model_4_decoding_json = "inference.new.json"
-model_4_decoding_h5 = "inference.new.h5"
-pickle_path = "tmp_ctc.new.pkl"
+model_4_decoding_json = "inference.mfcc%d.json"%mfcc_dim
+model_4_decoding_h5 = "inference.mfcc%d.h5"%mfcc_dim
+pickle_path = "tmp_ctc.mfcc%d.pkl"%mfcc_dim
 
 class KMCTC:
   @staticmethod
-  def print_result(logger, utts, id_to_word):
-    for i, utt in enumerate(utts):
-      sent = ""
-      for char in utt:
+  def get_result_str(utt, id_to_word):
+    sent = ""
+    for chars in utt:
+      for char in chars:
         if char < 0:
           break
-        if int(char) == len(id_to_word) - 1:
+        if int(char) == 0:
           sent += " "
         else:
           sent += id_to_word[int(char)]
-      logger.info("%d: %s" % (i, sent))
+    return sent
 
   @staticmethod
   def ctc_lambda_func(args):
@@ -143,7 +143,7 @@ def main():
 
   # create a class instance for obtaining batches of data
   audio_gen = AudioGenerator(logger, basepath=basepath, vocab=vocab,
-                             minibatch_size=minibatch_size, feat_dim=feat_dim,
+                             minibatch_size=minibatch_size, mfcc_dim=mfcc_dim,
                              max_duration=max_duration,
                              sort_by_duration=sort_by_duration,
                              is_char=is_char, is_bos_eos=is_bos_eos)
@@ -154,7 +154,7 @@ def main():
   audio_gen.load_test_data("%s/test_corpus.json"%basepath)
 
   model_4_decoding, model_4_training = \
-    KMCTC.create_model(input_dim=feat_dim,
+    KMCTC.create_model(input_dim=mfcc_dim,
                        output_dim=len(vocab),
                        gpus=n_gpu)
   logger.info("Model Summary")
@@ -164,7 +164,7 @@ def main():
   if not os.path.exists('results'):
     os.makedirs('results')
 
-  # train the model
+  # train a new model
   train_batch_size = (len(audio_gen.train_audio_paths)//minibatch_size)
   valid_batch_size = (len(audio_gen.valid_audio_paths)//minibatch_size)
   hist = model_4_training.fit_generator(generator=audio_gen.next_train(),
@@ -175,7 +175,14 @@ def main():
                                         verbose=1)
   model_4_decoding.set_weights(model_4_training.get_weights())
 
-  # saving model
+  # testing the model
+  for i, val in enumerate(audio_gen.next_test()):
+    if i == len(audio_gen.test_audio_paths):
+      break
+    result = KMCTC.get_result_str(model_4_decoding.predict(val[0]), id_to_word)
+    print("UTT%03d: %s"%(i+1, result))
+
+  # saving the model
   infer_json = "results/%s"%model_4_decoding_json
   infer_h5 = "results/%s"%model_4_decoding_h5
   model_json = model_4_decoding.to_json()
@@ -183,10 +190,6 @@ def main():
     json_file.write(model_json)
   model_4_decoding.save_weights(infer_h5)
   logger.info("Saved to %s, %s", infer_json, infer_h5)
-
-  utts = model_4_decoding.predict_generator(generator=audio_gen.next_test(),
-                                            steps=1, verbose=1)
-  KMCTC.print_result(logger, utts, id_to_word)
 
   with open('results/'+pickle_path, 'wb') as file:
     pickle.dump(hist.history, file)

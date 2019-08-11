@@ -9,8 +9,7 @@ class Constants:
   EVALUATION = "Test"
   EMPTY = "__empty__"
   EPS = '<eps>'
-  BLANK = 'blank'
-  SPACE = 'space'
+  SPACE = '<SPACE>'
   UNK = 'u'
   BOS = '<s>'
   EOS = '</s>'
@@ -68,4 +67,5 @@ class Logger:
                                   '%(filename)s:%(lineno)d] %(message)s')
     formatter.default_msec_format = '%s.%06d'
     handle.setFormatter(formatter)
+    self.logger.propagate = False
     self.logger.addHandler(handle)

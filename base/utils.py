@@ -7,9 +7,10 @@ from scipy.fftpack import dct
 
 from base.common import Constants
 
+
 class KmRNNTUtil:
   @staticmethod
-  def mfcc_features(path_file, frame_size=0.025, frame_stride=0.01):
+  def mfcc_features(path_file, frame_size=0.025, frame_stride=0.01, num_ceps=20):
     """
     I borrowed this feature extraction code from
     https://www.kaggle.com/ybonde/log-spectrogram-and-mfcc-filter-bank-example
@@ -53,7 +54,8 @@ class KmRNNTUtil:
     mag_frames = np.absolute(np.fft.rfft(frames, n_fft))  # Magnitude of the FFT
     pow_frames = ((1.0 / n_fft) * (mag_frames ** 2))  # Power Spectrum
 
-    n_filt = 40
+    window_size = 20
+    n_filt = window_size
     low_freq_mel = 0
     # Convert Hz to Mel
     high_freq_mel = (2595 * np.log10(1 + (sample_rate / 2) / 700))
@@ -78,7 +80,6 @@ class KmRNNTUtil:
                             filter_banks)  # Numerical Stability
     filter_banks = 20 * np.log10(filter_banks)  # dB
 
-    num_ceps = 20
     # Keep 2-13
     mfcc = dct(filter_banks, type=2, axis=1, norm='ortho')[:, 1: (num_ceps + 1)]
 
@@ -117,15 +118,15 @@ class KmRNNTUtil:
       id_to_word.append(Constants.BOS)
       id_to_word.append(Constants.EOS)
 
+    if is_char:
+      id_to_word.append(Constants.SPACE)
+
     with open(path) as file:
       for line in file:
         line = line.strip()
         len_line = len(line)
         if line and len_line > 0:
           id_to_word.append(line.split(" ")[0])
-
-    if is_char:
-      id_to_word.append(Constants.SPACE)
 
     # for making a word dictionary
     for i, word in enumerate(id_to_word):
