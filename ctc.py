@@ -11,6 +11,7 @@ import pickle
 import sys
 
 from keras.optimizers import SGD
+from keras.callbacks import ModelCheckpoint
 from keras.models import Model
 from keras.layers import CuDNNLSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
 from base.common import Constants
@@ -20,25 +21,26 @@ from base.data_generator import AudioGenerator
 
 # Setting hyper-parameters
 epochs = 5
-minibatch_size = 80
+minibatch_size = 20
 sort_by_duration = False
 max_duration = 50.0
 is_char = True
 is_bos_eos = False
-
+layers = 5
 # Feature
 mfcc_dim = 20
 
 # Model architecture
-cell_size = 300
-optimizer = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+cell_size = 500
+optimizer = SGD(lr=1e-4, decay=1e-8, momentum=0.9, nesterov=True, clipnorm=5)
 n_gpu = 1
 
 # Paths
 basepath = sys.argv[1]
-model_4_decoding_json = "inference.mfcc%d.json"%mfcc_dim
-model_4_decoding_h5 = "inference.mfcc%d.h5"%mfcc_dim
-pickle_path = "tmp_ctc.mfcc%d.pkl"%mfcc_dim
+model_4_decoding_json = "inference.mfcc%d.layer%d_%d.json"%(mfcc_dim, layers, cell_size)
+model_4_decoding_h5 = "inference.mfcc%d.layer%d_%d.h5"%(mfcc_dim, layers, cell_size)
+pickle_path = "ctc_loss.mfcc%d.layer%d_%d.pkl"%(mfcc_dim, layers, cell_size)
+ckpt_path = "ctc_ckpt.mfcc%d.layer%d_%d.ckpt"%(mfcc_dim, layers, cell_size)
 
 class KMCTC:
   @staticmethod
@@ -48,7 +50,7 @@ class KMCTC:
       for char in chars:
         if char < 0:
           break
-        if int(char) == 0:
+        if id_to_word[int(char)] == Constants.SPACE:
           sent += " "
         else:
           sent += id_to_word[int(char)]
@@ -96,11 +98,14 @@ class KMCTC:
     # Bidirectional CTC
     input_data = Input(name=Constants.KEY_INPUT, shape=(None, input_dim))
 
-    blstm1 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
-                           merge_mode='concat')(input_data)
-    blstm2 = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
-                           merge_mode='concat')(blstm1)
-    time_dense = TimeDistributed(Dense(output_dim + 1))(blstm2)
+    blstm = list()
+    blstm.append(Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
+                               merge_mode='concat')(input_data))
+    for _ in range(layers - 1):
+      blstm.append(Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
+                                 merge_mode='concat')(blstm[-1]))
+
+    time_dense = TimeDistributed(Dense(output_dim + 1))(blstm[-1])
     y_pred = Activation('softmax', name='softmax')(time_dense)
 
     # add CTC loss to the model
@@ -111,6 +116,7 @@ class KMCTC:
     loss_out = Lambda(KMCTC.ctc_lambda_func, output_shape=(1,), name=Constants.KEY_CTCLS)\
       ([y_pred] + [label, input_length, label_length])
 
+    # Setting decoder
     out_decoded_dense = Lambda(KMCTC.ctc_complete_decoding_lambda_func,
                                output_shape=(None, None), name='CTCdecode',
                                arguments={'greedy': False,
@@ -167,11 +173,13 @@ def main():
   # train a new model
   train_batch_size = (len(audio_gen.train_audio_paths)//minibatch_size)
   valid_batch_size = (len(audio_gen.valid_audio_paths)//minibatch_size)
+  checkpointer = ModelCheckpoint(filepath='results/' + ckpt_path, verbose=0)
   hist = model_4_training.fit_generator(generator=audio_gen.next_train(),
                                         steps_per_epoch=train_batch_size,
                                         epochs=epochs,
                                         validation_data=audio_gen.next_valid(),
                                         validation_steps=valid_batch_size,
+                                        callbacks=[checkpointer],
                                         verbose=1)
   model_4_decoding.set_weights(model_4_training.get_weights())
 
