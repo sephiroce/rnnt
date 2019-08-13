@@ -218,6 +218,10 @@ def main():
 
   model_4_training.summary()
 
+  # make results/ directory, if necessary
+  if not os.path.exists('results'):
+    os.makedirs('results')
+
   # saving the meta files of models
   with open(infer_json, "w") as json_file:
     json_file.write(model_4_decoding.to_json())
@@ -226,10 +230,6 @@ def main():
   with open(train_json, "w") as json_file:
     json_file.write(model_4_training.to_json())
     logger.info("Saved a meta file of a training model to %s", train_json)
-
-  # make results/ directory, if necessary
-  if not os.path.exists('results'):
-    os.makedirs('results')
 
   # train a new model
   train_batch_size = (len(audio_gen.train_audio_paths)//minibatch_size)
