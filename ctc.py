@@ -218,6 +218,15 @@ def main():
 
   model_4_training.summary()
 
+  # saving the meta files of models
+  with open(infer_json, "w") as json_file:
+    json_file.write(model_4_decoding.to_json())
+    logger.info("Saved a meta file of an inference model to %s", infer_json)
+
+  with open(train_json, "w") as json_file:
+    json_file.write(model_4_training.to_json())
+    logger.info("Saved a meta file of a training model to %s", train_json)
+
   # make results/ directory, if necessary
   if not os.path.exists('results'):
     os.makedirs('results')
@@ -230,14 +239,17 @@ def main():
   early_stopping = EarlyStopping(monitor=Constants.VAL_LOSS, patience=10,
                                  verbose=0,
                                  mode='min')
+
   checkpoint = ModelCheckpoint('results/%s-{epoch:03d}-{loss:03f}-{val_loss:03f}.h5'
                                %model_name,
                                verbose=1, monitor=Constants.VAL_LOSS,
                                save_best_only=False, mode='auto')
+
   reduce_lr_loss = ReduceLROnPlateau(monitor=Constants.VAL_LOSS, factor=0.1,
                                      patience=3,
                                      verbose=1, min_delta=1e-4, mode='min')
 
+  # fitting a model
   hist = model_4_training.fit_generator(generator=audio_gen.next_train(),
                                         steps_per_epoch=train_batch_size,
                                         epochs=epochs,
@@ -247,17 +259,12 @@ def main():
                                         verbose=1)
   model_4_decoding.set_weights(model_4_training.get_weights())
 
-  # saving the inference model
-  with open(infer_json, "w") as json_file:
-    json_file.write(model_4_decoding.to_json())
-  model_4_decoding.save_weights(infer_h5)
-  logger.info("Saved an inference model to %s, %s", infer_json, infer_h5)
 
-  # saving the training model
-  with open(train_json, "w") as json_file:
-    json_file.write(model_4_training.to_json())
+  # saving model weights
+  model_4_decoding.save_weights(infer_h5)
+  logger.info("Saved weights of the inference model to %s", infer_h5)
   model_4_training.save_weights(train_h5)
-  logger.info("Saved a training model to %s, %s", train_json, train_h5)
+  logger.info("Saved weights of the training model to %s", train_h5)
 
   # saving pickle_path
   with open("results/%s_ctc_loss.pkl"%model_name, 'wb') as file:
