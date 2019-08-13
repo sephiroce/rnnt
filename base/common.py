@@ -17,12 +17,14 @@ class Constants:
   KEY = 'key'
   TEXT = 'text'
   LOG_FBANK = 'log_filterbank'
+  VAL_LOSS = 'val_loss'
 
   KEY_INPUT = 'KMRNNT_INPUT_SPEECH'
   KEY_LABEL = 'KMRNNT_INPUT_LABELS'
   KEY_INLEN = 'KMRNNT_INPUT_LENGTH'
   KEY_LBLEN = 'KMRNNT_LABEL_LENGTH'
   KEY_CTCLS = 'KMRNNT_____CTC_LOSS'
+  KEY_CTCDE = 'KMRNNT_CTC_DECODING'
 
 class ExitCode:
   NO_DATA = 0

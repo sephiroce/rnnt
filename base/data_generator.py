@@ -236,7 +236,7 @@ class AudioGenerator:
       for line_num, json_line in enumerate(json_line_file):
         try:
           spec = json.loads(json_line)
-          if float(spec[Constants.DURATION]) > self.max_duration:
+          if 0 < self.max_duration < float(spec[Constants.DURATION]):
             continue
           audio_paths.append(spec[Constants.KEY])
           durations.append(float(spec[Constants.DURATION]))

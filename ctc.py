@@ -11,32 +11,19 @@ import pickle
 import sys
 
 from keras.optimizers import SGD
-from keras.callbacks import ModelCheckpoint
-from keras.models import Model
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from keras.models import Model, model_from_json
 from keras.layers import CuDNNLSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
 from base.common import Constants
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
 
-is_big = True
-
 # Setting hyper-parameters
 layers = -1
 cell_size = -1
-if is_big:
-  epochs = 50
-  minibatch_size = 25
-  layers = 5
-  cell_size = 500
-  optimizer = SGD(lr=1e-4, decay=1e-8, momentum=0.9, nesterov=True, clipnorm=5)
-else:
-  epochs = 2
-  minibatch_size = 80
-  layers = 2
-  cell_size = 300
-  optimizer = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-
+n_gpu = 1
+lr = -1.0
 sort_by_duration = False
 max_duration = 50.0
 is_char = True
@@ -45,14 +32,28 @@ is_bos_eos = False
 # Feature
 mfcc_dim = 20
 
-n_gpu = 1
+is_big = True
+
+if is_big:
+  epochs = 100
+  minibatch_size = 50
+  layers = 5
+  cell_size = 500
+  n_gpu = 2
+  lr = 0.001 * n_gpu
+  optimizer = SGD(lr=lr, decay=lr * 0.0001, momentum=0.9, nesterov=True, clipnorm=5)
+else:
+  epochs = 20
+  minibatch_size = 80
+  layers = 2
+  cell_size = 300
+  n_gpu = 2
+  lr = 0.02 * n_gpu
+  optimizer = SGD(lr=lr, decay=lr * 0.0001, momentum=0.9, nesterov=True, clipnorm=5)
 
 # Paths
 basepath = sys.argv[1]
-model_4_decoding_json = "inference.mfcc%d.layer%d_%d.json"%(mfcc_dim, layers, cell_size)
-model_4_decoding_h5 = "inference.mfcc%d.layer%d_%d.h5"%(mfcc_dim, layers, cell_size)
-pickle_path = "ctc_loss.mfcc%d.layer%d_%d.pkl"%(mfcc_dim, layers, cell_size)
-ckpt_path = "ctc_ckpt.mfcc%d.layer%d_%d.ckpt"%(mfcc_dim, layers, cell_size)
+model_name = "mfcc%d.layer%d_%d_lr%f"%(mfcc_dim, layers, cell_size, lr)
 
 class KMCTC:
   @staticmethod
@@ -97,6 +98,34 @@ class KMCTC:
                   dtype='float32')
 
   @staticmethod
+  def loading_model(infer_json, infer_h5, train_json, train_h5, gpus=n_gpu):
+    with open(infer_json) as json_file:
+      model_4_decoding = model_from_json(json_file.read())
+      model_4_decoding.load_weights(infer_h5)
+    with open(train_json) as json_file:
+      model_4_training = model_from_json(json_file.read())
+      model_4_training.load_weights(train_h5)
+
+    return KMCTC.compile_models(model_4_training, model_4_decoding, gpus)
+
+  @staticmethod
+  def compile_models(model_4_training, model_4_decoding, gpus):
+    # multi gpu
+    if gpus >= 2:
+      from keras.utils.training_utils import multi_gpu_model
+      model_4_training = multi_gpu_model(model_4_training, gpus=gpus)
+
+    # compiling a model
+    model_4_training.compile(loss={Constants.KEY_CTCLS:
+                                   lambda y_true, y_pred: y_pred},
+                             optimizer=optimizer)
+    model_4_decoding.compile(loss={Constants.KEY_CTCDE:
+                                   lambda y_true, y_pred: y_pred},
+                             optimizer=optimizer)
+
+    return model_4_training, model_4_decoding
+
+  @staticmethod
   def create_model(input_dim, output_dim, gpus=1):
     """
     this method creates a ctc model
@@ -130,7 +159,7 @@ class KMCTC:
 
     # Setting decoder
     out_decoded_dense = Lambda(KMCTC.ctc_complete_decoding_lambda_func,
-                               output_shape=(None, None), name='CTCdecode',
+                               output_shape=(None, None), name=Constants.KEY_CTCDE,
                                arguments={'greedy': False,
                                           'beam_width': 12,
                                           'top_paths': 1},
@@ -138,20 +167,12 @@ class KMCTC:
       ([y_pred] + [input_length])
 
     # creating a model
-    model = Model(inputs=[input_data] + [label, input_length, label_length],
-                  outputs=loss_out)
+    model_4_training = Model(inputs=[input_data] + [label, input_length, label_length],
+                             outputs=loss_out)
     model_4_decoding = Model(inputs=[input_data] + [input_length],
                              outputs=out_decoded_dense)
 
-    # multi gpu
-    if gpus >= 2:
-      from keras.utils.training_utils import multi_gpu_model
-      model = multi_gpu_model(model, gpus=gpus)
-
-    # compiling a model
-    model.compile(loss={Constants.KEY_CTCLS: lambda y_true, y_pred: y_pred}, optimizer=optimizer)
-    model_4_decoding.compile(loss={'CTCdecode': lambda y_true, y_pred: y_pred}, optimizer=optimizer)
-    return model_4_decoding, model
+    return KMCTC.compile_models(model_4_training, model_4_decoding, gpus)
 
 def main():
   logger = Logger(name="KmRNNT", level=Logger.DEBUG).logger
@@ -171,11 +192,30 @@ def main():
   audio_gen.load_validation_data('%s/valid_corpus.json'%basepath)
   audio_gen.load_test_data("%s/test_corpus.json"%basepath)
 
-  model_4_decoding, model_4_training = \
-    KMCTC.create_model(input_dim=mfcc_dim,
-                       output_dim=len(vocab),
-                       gpus=n_gpu)
-  logger.info("Model Summary")
+  # creating or loading a ctc model
+  infer_json = "results/%s_inference.json"%model_name
+  infer_h5 = "results/%s_inference.h5"%model_name
+  train_json = "results/%s_training.json" % model_name
+  train_h5 = "results/%s_training.h5" % model_name
+
+  if os.path.isfile(infer_json) and \
+    os.path.isfile(infer_h5) and \
+    os.path.isfile(train_json) and \
+    os.path.isfile(train_h5):
+    model_4_training, model_4_decoding = \
+      KMCTC.loading_model(infer_json=infer_json,
+                          infer_h5=infer_h5,
+                          train_json=train_json,
+                          train_h5=train_h5,
+                          gpus=n_gpu)
+    logger.info("A model was loaded.")
+  else:
+    model_4_training, model_4_decoding = \
+      KMCTC.create_model(input_dim=mfcc_dim,
+                         output_dim=len(vocab),
+                         gpus=n_gpu)
+    logger.info("A model was created.")
+
   model_4_training.summary()
 
   # make results/ directory, if necessary
@@ -185,27 +225,42 @@ def main():
   # train a new model
   train_batch_size = (len(audio_gen.train_audio_paths)//minibatch_size)
   valid_batch_size = (len(audio_gen.valid_audio_paths)//minibatch_size)
-  checkpointer = ModelCheckpoint(filepath='results/' + ckpt_path, verbose=0)
+
+  # call back functions
+  early_stopping = EarlyStopping(monitor=Constants.VAL_LOSS, patience=10,
+                                 verbose=0,
+                                 mode='min')
+  checkpoint = ModelCheckpoint('results/%s-{epoch:03d}-{loss:03f}-{val_loss:03f}.h5'
+                               %model_name,
+                               verbose=1, monitor=Constants.VAL_LOSS,
+                               save_best_only=False, mode='auto')
+  reduce_lr_loss = ReduceLROnPlateau(monitor=Constants.VAL_LOSS, factor=0.1,
+                                     patience=3,
+                                     verbose=1, min_delta=1e-4, mode='min')
+
   hist = model_4_training.fit_generator(generator=audio_gen.next_train(),
                                         steps_per_epoch=train_batch_size,
                                         epochs=epochs,
                                         validation_data=audio_gen.next_valid(),
                                         validation_steps=valid_batch_size,
-                                        callbacks=[checkpointer],
+                                        callbacks=[early_stopping, checkpoint, reduce_lr_loss],
                                         verbose=1)
   model_4_decoding.set_weights(model_4_training.get_weights())
 
-  # saving the model
-  infer_json = "results/%s"%model_4_decoding_json
-  infer_h5 = "results/%s"%model_4_decoding_h5
-  model_json = model_4_decoding.to_json()
+  # saving the inference model
   with open(infer_json, "w") as json_file:
-    json_file.write(model_json)
+    json_file.write(model_4_decoding.to_json())
   model_4_decoding.save_weights(infer_h5)
-  logger.info("Saved to %s, %s", infer_json, infer_h5)
+  logger.info("Saved an inference model to %s, %s", infer_json, infer_h5)
+
+  # saving the training model
+  with open(train_json, "w") as json_file:
+    json_file.write(model_4_training.to_json())
+  model_4_training.save_weights(train_h5)
+  logger.info("Saved a training model to %s, %s", train_json, train_h5)
 
   # saving pickle_path
-  with open('results/'+pickle_path, 'wb') as file:
+  with open("results/%s_ctc_loss.pkl"%model_name, 'wb') as file:
     pickle.dump(hist.history, file)
 
 if __name__ == "__main__":
