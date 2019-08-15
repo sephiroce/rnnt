@@ -10,18 +10,20 @@ them to the network for training or testing.
 """
 import json
 import random
+import sys
 import numpy as np
 
 import scipy.io.wavfile as wav
 from python_speech_features import mfcc
 from base.common import Constants
-
+from base.utils import KmRNNTUtil as Util
 
 RNG_SEED = 123
 
 class AudioGenerator:
-  def __init__(self, logger, basepath, vocab, step=10, mfcc_dim=20,
-               minibatch_size=20, max_duration=20.0, sort_by_duration=False,
+  def __init__(self, logger, basepath, vocab, step=10, feat_dim=20,
+               minibatch_size=20, max_duration=20.0,
+               feat_type=Constants.FEAT_FBANK, sort_by_duration=False,
                is_char=False, is_bos_eos=True):
     """
     Params:
@@ -36,12 +38,10 @@ class AudioGenerator:
     self.logger = logger
     self.basepath = basepath
 
-    self.window = 20
     self.max_freq = 16000
-    self.feat_dim = int(0.001 * self.window * self.max_freq) + 1
-    self.mfcc_dim = mfcc_dim
-    self.feats_mean = np.zeros((self.feat_dim,)) #321
-    self.feats_std = np.ones((self.feat_dim,))   #321
+    self.feat_dim = feat_dim
+    self.feats_mean = None
+    self.feats_std = None
     self.rng = random.Random(RNG_SEED)
     self.step = step
     self.cur_train_index = 0
@@ -53,6 +53,7 @@ class AudioGenerator:
     self.vocab = vocab
     self.is_char = is_char
     self.is_bos_eos = is_bos_eos
+    self.feat_type = feat_type
 
     self.train_audio_paths = Constants.EMPTY
     self.train_durations = 0
@@ -101,7 +102,7 @@ class AudioGenerator:
                                for i in range(0, self.minibatch_size)])
 
     # initialize the arrays
-    x_data = np.zeros([self.minibatch_size, max_length, self.mfcc_dim])
+    x_data = np.zeros([self.minibatch_size, max_length, self.feat_dim])
     labels = np.ones([self.minibatch_size, max_string_length]) * len(self.vocab)
     input_length = np.zeros([self.minibatch_size, 1])
     label_length = np.zeros([self.minibatch_size, 1])
@@ -281,10 +282,17 @@ class AudioGenerator:
     Params:
       audio_clip (str): Path to the audio clip
     """
-#    mfcc, _ = Util.mfcc_features(self.basepath + "/" + audio_clip, num_ceps=self.mfcc_dim)
-#    return mfcc
-    (rate, sig) = wav.read(self.basepath + "/" + audio_clip)
-    return mfcc(sig, rate, numcep=self.mfcc_dim)
+    if self.feat_type == Constants.FEAT_MFCC:
+      (rate, sig) = wav.read(self.basepath + "/" + audio_clip)
+      return mfcc(sig, rate, numcep=self.feat_dim)
+
+    if self.feat_type == Constants.FEAT_FBANK:
+      return Util.get_fbanks(self.basepath + "/" + audio_clip,
+                             frame_size=0.025, frame_stride=0.01,
+                             n_filt=self.feat_dim)
+
+    self.logger.error("%s is not supported yet.", self.feat_type)
+    sys.exit(1)
 
   def normalize(self, feature, eps=1e-14):
     """ Center a feature using the mean and std

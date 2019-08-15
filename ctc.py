@@ -22,7 +22,6 @@ from base.data_generator import AudioGenerator
 # Setting hyper-parameters
 layers = -1
 cell_size = -1
-n_gpu = 1
 lr = -1.0
 sort_by_duration = False
 max_duration = 50.0
@@ -30,16 +29,17 @@ is_char = True
 is_bos_eos = False
 
 # Feature
-mfcc_dim = 20
+feat_dim = 40
+feat_type = Constants.FEAT_FBANK
 
-is_big = True
+is_big = False
+n_gpu = 1
 
 if is_big:
   epochs = 100
   minibatch_size = 50
   layers = 5
   cell_size = 500
-  n_gpu = 2
   lr = 0.001 * n_gpu
   optimizer = SGD(lr=lr, decay=lr * 0.0001, momentum=0.9, nesterov=True, clipnorm=5)
 else:
@@ -47,13 +47,12 @@ else:
   minibatch_size = 80
   layers = 2
   cell_size = 300
-  n_gpu = 2
   lr = 0.02 * n_gpu
   optimizer = SGD(lr=lr, decay=lr * 0.0001, momentum=0.9, nesterov=True, clipnorm=5)
 
 # Paths
 basepath = sys.argv[1]
-model_name = "mfcc%d.layer%d_%d_lr%f"%(mfcc_dim, layers, cell_size, lr)
+model_name = "%s%d.layer%d_%d_lr%f"%(feat_type, feat_dim, layers, cell_size, lr)
 
 class KMCTC:
   @staticmethod
@@ -182,7 +181,8 @@ def main():
 
   # create a class instance for obtaining batches of data
   audio_gen = AudioGenerator(logger, basepath=basepath, vocab=vocab,
-                             minibatch_size=minibatch_size, mfcc_dim=mfcc_dim,
+                             minibatch_size=minibatch_size, feat_dim=feat_dim,
+                             feat_type=feat_type,
                              max_duration=max_duration,
                              sort_by_duration=sort_by_duration,
                              is_char=is_char, is_bos_eos=is_bos_eos)
@@ -211,7 +211,7 @@ def main():
     logger.info("A model was loaded.")
   else:
     model_4_training, model_4_decoding = \
-      KMCTC.create_model(input_dim=mfcc_dim,
+      KMCTC.create_model(input_dim=feat_dim,
                          output_dim=len(vocab),
                          gpus=n_gpu)
     logger.info("A model was created.")

@@ -3,22 +3,30 @@
 
 import numpy as np
 from scipy.io import wavfile # reading the wavfile
-from scipy.fftpack import dct
-
 from base.common import Constants
-
 
 class KmRNNTUtil:
   @staticmethod
-  def mfcc_features(path_file, frame_size=0.025, frame_stride=0.01, num_ceps=20):
+  def get_fbanks(path_file, frame_size=0.025, frame_stride=0.01, n_filt=40):
     """
     I borrowed this feature extraction code from
     https://www.kaggle.com/ybonde/log-spectrogram-and-mfcc-filter-bank-example
-    https://haythamfayek.com/2016/04/21/speech-processing-for-machine-learning.html
+    https://haythamfayek.com/2016/04/21/speech-processing-for-machine
+    -learning.html
+    :param n_filt: applying triangular n_filt filsters filters, typically 40 filters,
+      nfilt = 40 on a Mel-scale to the power spectrum
+      to extract frequency bands. The Mel-scale aims to mimic the non-linear human ear
+      perception of sound, by being more discriminative at lower frequencies and less
+      discriminative at higher frequencies. The final step to computing filter banks is
+       applying triangular filters, typically 40 filters, nfilt = 40 on a Mel-scale to
+       the power spectrum to extract frequency bands. The Mel-scale aims to mimic the
+       non-linear human ear perception of sound, by being more discriminative at lower
+        frequencies and less discriminative at higher frequencies.
     :param path_file: path for a speech file
     :param frame_size: the length for frame (default = 0.05, it means 50 ms)
-    :param frame_stride: the length for striding (default = 0.03, it means 30 ms)
-    :return:
+    :param frame_stride: the length for striding (default = 0.03, it means 30
+    ms)
+    :return: fbank features
     """
     sample_rate, signal = wavfile.read(path_file)
     pre_emphasis = 0.97
@@ -47,15 +55,14 @@ class KmRNNTUtil:
                       (frame_length, 1)).T
     frames = pad_signal[indices.astype(np.int32, copy=False)]
 
-    # hamming window
+    # applying hamming window to all frames
     frames *= np.hamming(frame_length)
+    # frames *= 0.54 - 0.46 * np.cos((2 * numpy.pi * n) / (frame_length - 1))
 
     n_fft = 512
     mag_frames = np.absolute(np.fft.rfft(frames, n_fft))  # Magnitude of the FFT
     pow_frames = ((1.0 / n_fft) * (mag_frames ** 2))  # Power Spectrum
 
-    window_size = 20
-    n_filt = window_size
     low_freq_mel = 0
     # Convert Hz to Mel
     high_freq_mel = (2595 * np.log10(1 + (sample_rate / 2) / 700))
@@ -80,16 +87,7 @@ class KmRNNTUtil:
                             filter_banks)  # Numerical Stability
     filter_banks = 20 * np.log10(filter_banks)  # dB
 
-    # Keep 2-13
-    mfcc = dct(filter_banks, type=2, axis=1, norm='ortho')[:, 1: (num_ceps + 1)]
-
-    cep_lifter = 22
-    (_, n_coeff) = mfcc.shape
-    coeff_arr = np.arange(n_coeff)
-    lift = 1 + (cep_lifter / 2) * np.sin(np.pi * coeff_arr / cep_lifter)
-    mfcc *= lift  # *
-
-    return filter_banks, mfcc
+    return filter_banks
 
   @staticmethod
   def load_vocab(path, is_char=True, is_bos_eos=False):
