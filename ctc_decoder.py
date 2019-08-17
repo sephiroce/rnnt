@@ -16,6 +16,7 @@ def main():
   # Options
   basepath = sys.argv[1]
   vocab, id_to_word = Util.load_vocab(sys.argv[2], is_char=True, is_bos_eos=False)
+  cmvn_files = None
 
   json_file = open(sys.argv[3], "r")
   loaded_model_json = json_file.read()
@@ -33,9 +34,10 @@ def main():
                              max_duration=0, # it means, all duration speeches will be generated.
                              sort_by_duration=False,
                              is_char=True,
-                             is_bos_eos=False)
+                             is_bos_eos=False,
+                             cmvn_files=cmvn_files)
 
-  audio_gen.load_train_data("%s/train_corpus.json" % basepath)
+  audio_gen.load_train_data("%s/train_corpus.json" % basepath, 1000)
   audio_gen.load_test_data("%s/test_corpus.json" % basepath)
 
   with open(sys.argv[4]+".utt", "w") as utt_file:

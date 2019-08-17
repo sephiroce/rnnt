@@ -31,6 +31,10 @@ class Constants:
   FEAT_LOG_FBANK = 'FEATURE_LOG_FILTERBANK'
   FEAT_SPECGRAM = 'FEATURE_SPECTROGRAM'
 
+class CmvnFiles:
+  mean = "cmvn.mean"
+  std = "cmvn.std"
+
 class ExitCode:
   NO_DATA = 0
   NOT_SUPPORTED = 1

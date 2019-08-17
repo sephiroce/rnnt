@@ -14,10 +14,15 @@ from keras.optimizers import SGD
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.models import Model, model_from_json
 from keras.layers import CuDNNLSTM, Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
+
 from base.common import Constants
+from base.common import CmvnFiles
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger
 from base.data_generator import AudioGenerator
+
+# Paths
+basepath = sys.argv[1]
 
 # Setting hyper-parameters
 layers = -1
@@ -31,13 +36,14 @@ is_bos_eos = False
 # Feature
 feat_dim = 40
 feat_type = Constants.FEAT_FBANK
+cmvn_files = CmvnFiles()
 
-is_big = False
-n_gpu = 1
+is_big = True
+n_gpu = 2
 
 if is_big:
-  epochs = 100
-  minibatch_size = 50
+  epochs = 300
+  minibatch_size = 24 * n_gpu
   layers = 5
   cell_size = 500
   lr = 0.001 * n_gpu
@@ -50,9 +56,8 @@ else:
   lr = 0.02 * n_gpu
   optimizer = SGD(lr=lr, decay=lr * 0.0001, momentum=0.9, nesterov=True, clipnorm=5)
 
-# Paths
-basepath = sys.argv[1]
-model_name = "%s%d.layer%d_%d_lr%f"%(feat_type, feat_dim, layers, cell_size, lr)
+model_name = "%s%d.layer%d_%d_lr%f_gpus%d"%(feat_type, feat_dim, layers,
+                                            cell_size, lr, n_gpu)
 
 class KMCTC:
   @staticmethod
@@ -138,14 +143,14 @@ class KMCTC:
     # Bidirectional CTC
     input_data = Input(name=Constants.KEY_INPUT, shape=(None, input_dim))
 
-    blstm = list()
-    blstm.append(Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
-                               merge_mode='concat')(input_data))
-    for _ in range(layers - 1):
-      blstm.append(Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
-                                 merge_mode='concat')(blstm[-1]))
 
-    time_dense = TimeDistributed(Dense(output_dim + 1))(blstm[-1])
+    prev_layer = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
+                               merge_mode='concat')(input_data)
+    for _ in range(layers - 1):
+      prev_layer = Bidirectional(CuDNNLSTM(cell_size, return_sequences=True),
+                                 merge_mode='concat')(prev_layer)
+
+    time_dense = TimeDistributed(Dense(output_dim + 1))(prev_layer)
     y_pred = Activation('softmax', name='softmax')(time_dense)
 
     # add CTC loss to the model
@@ -175,6 +180,7 @@ class KMCTC:
 
 def main():
   logger = Logger(name="KmRNNT", level=Logger.DEBUG).logger
+  logger.info("Model name: %s", model_name)
   vocab, _ = Util.load_vocab(sys.argv[2], is_char=is_char,
                              is_bos_eos=is_bos_eos)
   logger.info("The number of vocabularies is %d", len(vocab))
@@ -185,7 +191,8 @@ def main():
                              feat_type=feat_type,
                              max_duration=max_duration,
                              sort_by_duration=sort_by_duration,
-                             is_char=is_char, is_bos_eos=is_bos_eos)
+                             is_char=is_char, is_bos_eos=is_bos_eos,
+                             cmvn_files=cmvn_files)
 
   # add the training data to the generator
   audio_gen.load_train_data("%s/train_corpus.json"%basepath)

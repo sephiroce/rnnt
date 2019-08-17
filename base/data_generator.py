@@ -9,6 +9,7 @@ Defines a class that is used to featurize audio clips, and provide
 them to the network for training or testing.
 """
 import json
+import os
 import random
 import sys
 import numpy as np
@@ -24,7 +25,7 @@ class AudioGenerator:
   def __init__(self, logger, basepath, vocab, step=10, feat_dim=20,
                minibatch_size=20, max_duration=20.0,
                feat_type=Constants.FEAT_FBANK, sort_by_duration=False,
-               is_char=False, is_bos_eos=True):
+               is_char=False, is_bos_eos=True, cmvn_files=None):
     """
     Params:
       step (int): Step size in milliseconds between windows (for spectrogram ONLY)
@@ -54,6 +55,7 @@ class AudioGenerator:
     self.is_char = is_char
     self.is_bos_eos = is_bos_eos
     self.feat_type = feat_type
+    self.cmvn_files = cmvn_files
 
     self.train_audio_paths = Constants.EMPTY
     self.train_durations = 0
@@ -210,9 +212,9 @@ class AudioGenerator:
         self.cur_test_index = 0
       yield ret
 
-  def load_train_data(self, desc_file='train_corpus.json'):
+  def load_train_data(self, desc_file='train_corpus.json', cmvn_samples=100):
     self.load_metadata_from_desc_file(desc_file, Constants.TRAINING)
-    self.fit_train()
+    self.fit_train(cmvn_samples)
     if self.sort_by_duration:
       self.sort_data_by_duration(Constants.TRAINING)
 
@@ -269,13 +271,19 @@ class AudioGenerator:
     Params:
       k_samples (int): Use this number of samples for estimation
     """
-    k_samples = min(k_samples, len(self.train_audio_paths))
-    samples = self.rng.sample(self.train_audio_paths, k_samples)
-    feats = [self.featurize(s) for s in samples]
-    feats = np.vstack(feats)
-    # Get mean and std per sample group ?
-    self.feats_mean = np.mean(feats, axis=0)
-    self.feats_std = np.std(feats, axis=0)
+    if self.cmvn_files and os.path.isfile(self.cmvn_files.mean) \
+                       and os.path.isfile(self.cmvn_files.std):
+      self.feats_mean = np.loadtxt(self.cmvn_files.mean)
+      self.feats_std = np.loadtxt(self.cmvn_files.std)
+      self.logger.info("CMVN files were loaded from %s, and %s.",
+                       self.cmvn_files.mean, self.cmvn_files.std)
+    else:
+      k_samples = min(k_samples, len(self.train_audio_paths))
+      samples = self.rng.sample(self.train_audio_paths, k_samples)
+      feats = [self.featurize(s) for s in samples]
+      feats = np.vstack(feats)
+      self.feats_mean = np.mean(feats, axis=0)
+      self.feats_std = np.std(feats, axis=0)
 
   def featurize(self, audio_clip):
     """ For a given audio clip, calculate the corresponding feature
