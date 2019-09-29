@@ -1,46 +1,50 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-locals,
+# pylint: disable=too-many-locals, no-member
 
 import sys
 
+import os
 from keras.models import model_from_json
 from base.utils import KmRNNTUtil as Util
-from base.common import Constants
-from base.common import Logger
+from base.common import Logger, ParseOption, ExitCode
 from base.data_generator import AudioGenerator
 from ctc import KMCTC
 
 def main():
   logger = Logger(name="KmRNNT_CTC_Decoder", level=Logger.DEBUG).logger
 
-  # Options
-  basepath = sys.argv[1]
-  vocab, id_to_word = Util.load_vocab(sys.argv[2], is_char=True, is_bos_eos=False)
-  cmvn_files = None
+  # Configurations
+  config = ParseOption(sys.argv, logger).args
 
-  json_file = open(sys.argv[3], "r")
+  # Loading vocabs
+  vocab_path = Util.get_file_path(config.paths_data_path, config.paths_vocab)
+  if not os.path.isfile(vocab_path):
+    logger.critical("%s does not exist.", vocab_path)
+    sys.exit(ExitCode.INVALID_FILE_PATH)
+  vocab, id_to_word = Util.load_vocab(vocab_path, config=config)
+  logger.info("%d words were loaded.", len(vocab))
+
+  json_file = open(Util.get_file_path(config.paths_data_path,
+                                      config.paths_model_json), "r")
   loaded_model_json = json_file.read()
   json_file.close()
 
   model = model_from_json(loaded_model_json)
-  model.load_weights(sys.argv[4])
+  model_weight_path = Util.get_file_path(config.paths_data_path,
+                                         config.paths_model_h5)
+  model.load_weights(model_weight_path)
   model.summary()
 
-  audio_gen = AudioGenerator(logger,
-                             basepath=basepath,
-                             vocab=vocab,
-                             minibatch_size=1,
-                             feat_dim=model.get_layer(Constants.KEY_INPUT).output_shape[2],
-                             max_duration=0, # it means, all duration speeches will be generated.
-                             sort_by_duration=False,
-                             is_char=True,
-                             is_bos_eos=False,
-                             cmvn_files=cmvn_files)
+  audio_gen = AudioGenerator(logger, config, vocab)
 
-  audio_gen.load_train_data("%s/train_corpus.json" % basepath, 1000)
-  audio_gen.load_test_data("%s/test_corpus.json" % basepath)
+  # CMVN
+  audio_gen.load_train_data(Util.get_file_path(config.paths_data_path,
+                                               "train_corpus.json"), 1000)
+  # Testing data
+  audio_gen.load_test_data(Util.get_file_path(config.paths_data_path,
+                                              "test_corpus.json"))
 
-  with open(sys.argv[4]+".utt", "w") as utt_file:
+  with open(model_weight_path+".utt", "w") as utt_file:
     for i, val in enumerate(audio_gen.next_test()):
       if i == len(audio_gen.test_audio_paths):
         break

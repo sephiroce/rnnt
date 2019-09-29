@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-instance-attributes, too-many-arguments, too-many-locals, too-many-branches, too-many-statements
+# pylint: disable=too-many-instance-attributes, too-many-arguments
+# pylint: disable=too-many-locals, too-many-branches, too-many-statements
 
 """
 This is a customized version of an AudioGenerator class of lucko515.
@@ -9,7 +10,6 @@ Defines a class that is used to featurize audio clips, and provide
 them to the network for training or testing.
 """
 import json
-import os
 import random
 import sys
 import numpy as np
@@ -22,10 +22,7 @@ from base.utils import KmRNNTUtil as Util
 RNG_SEED = 123
 
 class AudioGenerator:
-  def __init__(self, logger, basepath, vocab, step=10, feat_dim=20,
-               minibatch_size=20, max_duration=20.0,
-               feat_type=Constants.FEAT_FBANK, sort_by_duration=False,
-               is_char=False, is_bos_eos=True, cmvn_files=None):
+  def __init__(self, logger, config, vocab):
     """
     Params:
       step (int): Step size in milliseconds between windows (for spectrogram ONLY)
@@ -37,25 +34,21 @@ class AudioGenerator:
     """
 
     self.logger = logger
-    self.basepath = basepath
+    self.basepath = config.paths_data_path
 
     self.max_freq = 16000
-    self.feat_dim = feat_dim
+    self.feat_dim = config.feature_dimension
     self.feats_mean = None
     self.feats_std = None
     self.rng = random.Random(RNG_SEED)
-    self.step = step
     self.cur_train_index = 0
     self.cur_valid_index = 0
     self.cur_test_index = 0
-    self.max_duration = max_duration
-    self.minibatch_size = minibatch_size
-    self.sort_by_duration = sort_by_duration
+    self.max_duration = config.prep_max_duration
+    self.minibatch_size = config.train_batch
     self.vocab = vocab
-    self.is_char = is_char
-    self.is_bos_eos = is_bos_eos
-    self.feat_type = feat_type
-    self.cmvn_files = cmvn_files
+    self.is_char = config.prep_text_unit == Constants.CHAR
+    self.feat_type = config.feature_type
 
     self.train_audio_paths = Constants.EMPTY
     self.train_durations = 0
@@ -92,24 +85,24 @@ class AudioGenerator:
                 audio_paths[cur_index:cur_index+self.minibatch_size]]
 
     # calculate necessary sizes
-    max_length = max([features[i].shape[0]
-                      for i in range(0, self.minibatch_size)])
+    batch_size = min(len(features), self.minibatch_size)
+    max_length = max([features[i].shape[0] for i in range(0, batch_size)])
 
     # plus two for BOS and EOS
     if self.is_char:
-      max_string_length = max([len(texts[cur_index + i]) + (2 * self.is_bos_eos)
-                               for i in range(0, self.minibatch_size)])
+      max_string_length = max([len(texts[cur_index + i])
+                               for i in range(0, batch_size)])
     else:
-      max_string_length = max([len(texts[cur_index+i].split(" ")) + (2 * self.is_bos_eos)
-                               for i in range(0, self.minibatch_size)])
+      max_string_length = max([len(texts[cur_index+i].split(" "))
+                               for i in range(0, batch_size)])
 
     # initialize the arrays
-    x_data = np.zeros([self.minibatch_size, max_length, self.feat_dim])
-    labels = np.ones([self.minibatch_size, max_string_length]) * len(self.vocab)
-    input_length = np.zeros([self.minibatch_size, 1])
-    label_length = np.zeros([self.minibatch_size, 1])
+    x_data = np.zeros([batch_size, max_length, self.feat_dim])
+    labels = np.ones([batch_size, max_string_length]) * len(self.vocab)
+    input_length = np.zeros([batch_size, 1])
+    label_length = np.zeros([batch_size, 1])
 
-    for i in range(0, self.minibatch_size):
+    for i in range(0, batch_size):
       # calculate X_data & input_length
       feat = features[i]
       input_length[i] = feat.shape[0]
@@ -117,9 +110,6 @@ class AudioGenerator:
 
       # calculate labels & label_length
       int_seq = list()
-
-      if self.is_bos_eos:
-        int_seq.append(self.vocab[Constants.BOS])
 
       if self.is_char:
         for char in texts[cur_index + i].strip():
@@ -137,15 +127,12 @@ class AudioGenerator:
           else:
             int_seq.append(self.vocab[Constants.UNK])
 
-      if self.is_bos_eos:
-        int_seq.append(self.vocab[Constants.EOS])
-
       label = np.array(int_seq)
       labels[i, :len(label)] = label
       label_length[i] = len(label)
 
     # return the arrays
-    outputs = {Constants.KEY_CTCLS: np.zeros([self.minibatch_size])}
+    outputs = {Constants.KEY_CTCLS: np.zeros([batch_size])}
     inputs = {Constants.KEY_INPUT: x_data,
               Constants.KEY_LABEL: labels,
               Constants.KEY_INLEN: input_length,
@@ -215,13 +202,9 @@ class AudioGenerator:
   def load_train_data(self, desc_file='train_corpus.json', cmvn_samples=100):
     self.load_metadata_from_desc_file(desc_file, Constants.TRAINING)
     self.fit_train(cmvn_samples)
-    if self.sort_by_duration:
-      self.sort_data_by_duration(Constants.TRAINING)
 
   def load_validation_data(self, desc_file='valid_corpus.json'):
     self.load_metadata_from_desc_file(desc_file, Constants.VALIDATION)
-    if self.sort_by_duration:
-      self.sort_data_by_duration(Constants.VALIDATION)
 
   def load_test_data(self, desc_file='test_corpus.json'):
     self.load_metadata_from_desc_file(desc_file, Constants.EVALUATION)
@@ -271,13 +254,8 @@ class AudioGenerator:
     Params:
       k_samples (int): Use this number of samples for estimation
     """
-    if self.cmvn_files and os.path.isfile(self.cmvn_files.mean) \
-                       and os.path.isfile(self.cmvn_files.std):
-      self.feats_mean = np.loadtxt(self.cmvn_files.mean)
-      self.feats_std = np.loadtxt(self.cmvn_files.std)
-      self.logger.info("CMVN files were loaded from %s, and %s.",
-                       self.cmvn_files.mean, self.cmvn_files.std)
-    else:
+    # calculating CMVN if it was not pre-calculated.
+    if self.feats_mean is None or self.feats_std is None:
       k_samples = min(k_samples, len(self.train_audio_paths))
       samples = self.rng.sample(self.train_audio_paths, k_samples)
       feats = [self.featurize(s) for s in samples]

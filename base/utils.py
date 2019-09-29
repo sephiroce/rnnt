@@ -1,11 +1,74 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-arguments, too-many-locals
+# pylint: disable=too-many-arguments, too-many-locals, import-error
 
+import os
+import sys
 import numpy as np
 from scipy.io import wavfile # reading the wavfile
-from base.common import Constants
+from base.common import Constants, ExitCode
 
 class KmRNNTUtil:
+  @staticmethod
+  def get_file_path(data_path: str, file_path: str) -> str:
+    """
+    In order to handle both absolute paths and relative paths, it returns an
+    exist path among combinations of data_path and file_path.
+
+    :param data_path: base path
+    :param file_path: file path
+    :return: a existed file path
+    """
+    data_path = data_path.strip()
+    file_path = file_path.strip()
+    return file_path if os.path.isfile(file_path) \
+      else data_path + "/" + file_path
+
+  @staticmethod
+  def rnnt_lambda_func(args):
+    """
+    TODO this is not fully functional yet!
+    :param args:
+    :return:
+    """
+    y_trans, y_pred, labels, input_length, label_length = args
+    import keras.backend as K
+
+    # calculating lattices from the output from the prediction network and
+    # the transcription network.
+    batch_size = K.shape(y_trans)[0]
+    time_index = K.shape(y_trans)[1]
+    label_sequence_length = K.shape(y_pred)[1]
+    vocab_n = K.shape(y_trans)[2]
+
+    # tf.shape(y_pred) = [B, U+1, V]
+    y_trans = K.reshape(K.tile(y_trans, [1, label_sequence_length, 1]),
+                        [batch_size, time_index,
+                         label_sequence_length, vocab_n])
+    y_pred = K.reshape(K.tile(y_pred, [1, time_index, 1]),
+                       [batch_size, time_index,
+                        label_sequence_length, vocab_n])
+
+    logit_lattice = K.exp(y_trans + y_pred)
+    acts = K.softmax(logit_lattice, axis=3)
+
+    from warprnnt_tensorflow import rnnt_loss
+    return rnnt_loss(acts,
+                     K.cast(labels, 'int32'),
+                     K.cast(input_length, 'int32'),
+                     K.cast(label_length, 'int32'),
+                     29)
+
+  @staticmethod
+  def ctc_lambda_func(args):
+    y_pred, labels, input_length, label_length = args
+    # the 2 is critical here since the first couple outputs of the RNN
+    # tend to be garbage:
+    shift = 2
+    y_pred = y_pred[:, shift:, :]
+    input_length -= shift
+    from keras import backend as k
+    return k.ctc_batch_cost(labels, y_pred, input_length, label_length)
+
   @staticmethod
   def get_fbanks(path_file, frame_size=0.025, frame_stride=0.01, n_filt=40):
     """
@@ -90,44 +153,52 @@ class KmRNNTUtil:
     return filter_banks
 
   @staticmethod
-  def load_vocab(path, is_char=True, is_bos_eos=False):
+  def load_vocab(path, config) -> (dict, list):
     """
-    This method follows the blank symbol policy
-
-    url: https://kite.com/python/docs/keras.backend.ctc.ctc_loss
-
-    The `inputs` Tensor's innermost dimension size, `num_classes`, represents
-    `num_labels + 1` classes, where num_labels is the number of true labels, and
-    the largest value `(num_classes - 1)` is reserved for the blank label.
-
-    For example, for a vocabulary containing 3 labels `[a, b, c]`,
-    `num_classes = 4` and the labels indexing is `{a: 0, b: 1, c: 2, blank: 3}`.
-
     :param path: vocabulary file
-    :param is_char: the unit of vocabulary is a word or a character?
-    :param is_bos_eos: begin of sentences and end of sentences need to be added
-    :return:
+    :param config: RNN-LM config
+    :return: word_to_id(dic) and id_to_vocab(list)
     """
     word_to_id = dict()
     id_to_word = list()
-
-    # bos and eos will be needed ?
-    if is_bos_eos:
-      id_to_word.append(Constants.BOS)
-      id_to_word.append(Constants.EOS)
-
-    if is_char:
-      id_to_word.append(Constants.SPACE)
 
     with open(path) as file:
       for line in file:
         line = line.strip()
         len_line = len(line)
         if line and len_line > 0:
-          id_to_word.append(line.split(" ")[0])
+          id_to_word.append(line.strip())
 
     # for making a word dictionary
     for i, word in enumerate(id_to_word):
       word_to_id[word] = i
+
+    sanity_check = True
+    if len(word_to_id) != len(id_to_word):
+      print("duplicated words exit in the vocab file.")
+      sanity_check = False
+
+    if config.prep_use_bos and Constants.BOS not in word_to_id:
+      print("prep_use_bos is True but no %s in the vocab file."%Constants.BOS)
+      sanity_check = False
+
+    if (config.prep_use_eos or config.prep_use_beos) and Constants.EOS not in\
+            word_to_id:
+      print("prep_use_eos or beos is True but no %s in the vocab file." %
+            Constants.EOS)
+      sanity_check = False
+
+    if config.prep_text_unit == Constants.CHAR and Constants.SPACE not in \
+            word_to_id:
+      print("prep_text_unit is %s but no %s in the vocab file." %
+            (Constants.CHAR, Constants.SPACE))
+      sanity_check = False
+
+    if config.prep_use_unk and Constants.UNK not in word_to_id:
+      print("A vocab file must contain unknown symbol \"%s\"." % Constants.UNK)
+      sanity_check = False
+
+    if not sanity_check:
+      sys.exit(ExitCode.INVALID_DICTIONARY)
 
     return word_to_id, id_to_word
