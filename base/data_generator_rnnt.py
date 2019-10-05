@@ -21,16 +21,17 @@ from base.utils import KmRNNTUtil as Util
 
 RNG_SEED = 123
 
-class AudioGenerator:
+class AudioGeneratorForRNNT:
   def __init__(self, logger, config, vocab):
     """
     Params:
-      step (int): Step size in milliseconds between windows (for spectrogram ONLY)
+      step (int): Step size in milliseconds between windows (for spectrogram 
+      ONLY)
       desc_file (str, optional): Path to a JSON-line file that contains
         labels and paths to the audio files. If this is None, then
         load metadata right away
 
-    current version only supports Filterbank 40-dim
+    :type prepanded: parameter to set whether to use prepanded label
     """
 
     self.logger = logger
@@ -81,63 +82,56 @@ class AudioGenerator:
       raise Exception("Invalid partition. Must be %s/%s"%
                       (Constants.TRAINING, Constants.VALIDATION))
 
+    # extracting features
     features = [self.normalize(self.featurize(a)) for a in
                 audio_paths[cur_index:cur_index+self.minibatch_size]]
 
     # calculate necessary sizes
     batch_size = min(len(features), self.minibatch_size)
-    max_length = max([features[i].shape[0] for i in range(0, batch_size)])
+    max_feat_len = max([features[i].shape[0] for i in range(0, batch_size)])
 
     # plus two for BOS and EOS
     if self.is_char:
-      max_string_length = max([len(texts[cur_index + i])
+      max_stri_len = max([len(texts[cur_index + i])
                                for i in range(0, batch_size)])
     else:
-      max_string_length = max([len(texts[cur_index+i].split(" "))
+      max_stri_len = max([len(texts[cur_index+i].split(" "))
                                for i in range(0, batch_size)])
 
     # initialize the arrays
-    x_data = np.zeros([batch_size, max_length, self.feat_dim])
-    labels = np.ones([batch_size, max_string_length]) * len(self.vocab)
-    input_length = np.zeros([batch_size, 1])
-    label_length = np.zeros([batch_size, 1])
+    # Input for each network
+    input_tran = np.zeros([batch_size, max_feat_len, self.feat_dim])
+    input_pred = np.zeros([batch_size, max_stri_len + 1, len(self.vocab)])
+
+    # Input for computing rnnt losses
+    label_rnnt = np.zeros([batch_size, max_stri_len + 1])
+    input_length = np.zeros([batch_size])
+    label_length = np.zeros([batch_size])
 
     for i in range(0, batch_size):
-      # calculate X_data & input_length
+      # Input for Transcription network
       feat = features[i]
-      input_length[i] = feat.shape[0]
-      x_data[i, :feat.shape[0], :] = feat
+      input_length[i] = feat.shape[0] # T
+      input_tran[i, :feat.shape[0], :] = feat # x
 
-      # calculate labels & label_length
-      int_seq = list()
-
-      if self.is_char:
-        for char in texts[cur_index + i].strip():
-          if char in self.vocab:
-            int_seq.append(self.vocab[char])
-          elif char == ' ':
-            int_seq.append(self.vocab[Constants.SPACE])
-          else:
-            self.logger.error(texts[cur_index + i].strip())
-            int_seq.append(self.vocab[Constants.UNK])
-      else:
-        for bpe in texts[cur_index+i].strip().split(" "):
-          if bpe in self.vocab:
-            int_seq.append(self.vocab[bpe])
-          else:
-            int_seq.append(self.vocab[Constants.UNK])
-
-      label = np.array(int_seq)
-      labels[i, :len(label)] = label
-      label_length[i] = len(label)
+      # Input for Prediction network and label for rnnt
+      int_seq = Util.get_int_seq(texts[cur_index + i],
+                                 self.is_char, self.vocab, 1)
+      label_rnnt[i, :len(int_seq)] = np.array(int_seq)
+      label_length[i] = len(int_seq)
+      for j in range(len(int_seq)):
+        input_pred[i, j + 1, int_seq[j] - 1] = 1
 
     # return the arrays
-    outputs = {Constants.KEY_CTCLS: np.zeros([batch_size])}
-    inputs = {Constants.KEY_INPUT: x_data,
-              Constants.KEY_LABEL: labels,
-              Constants.KEY_INLEN: input_length,
-              Constants.KEY_LBLEN: label_length
-             }
+    inputs = {Constants.INPUT_TRANS: input_tran,   # [B, T, F]
+              Constants.INPUT_PREDS: input_pred,   # [B, U + 1, V]: labels
+              Constants.INPUT_INLEN: input_length, # [B] : T
+              Constants.INPUT_LBLEN: label_length, # [B] : U
+              Constants.INPUT_LABEL: label_rnnt    # [B, U]
+              }
+
+    outputs = {Constants.LOSS_RNNT: np.zeros([batch_size])}
+
     return inputs, outputs
 
   def shuffle_data_by_partition(self, partition):

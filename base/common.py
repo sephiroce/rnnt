@@ -32,8 +32,13 @@ class Constants:
   KEY_LBLEN = 'KMRNNT_LABEL_LENGTH'
   KEY_CTCLS = 'KMRNNT_____CTC_LOSS'
   KEY_CTCDE = 'KMRNNT_CTC_DECODING'
-  KEY_RNTLS = 'KMRNNT____RNNT_LOSS'
-  KEY_BLANK = 'KMRNNT________BLANK'
+
+  INPUT_TRANS = 'KMRNNT_INPUT_TO_TRANSCRIPTION_NETWORK'
+  INPUT_PREDS = 'KMRNNT_INPUT_TO____PREDICTION_NETWORK'
+  INPUT_LABEL = 'KMRNNT_INPUT_TO_WARP_RNNT_LABELS'
+  INPUT_INLEN = 'KMRNNT_INPUT_TO_WARP_RNNT_INPUT_LENGTHS'
+  INPUT_LBLEN = 'KMRNNT_INPUT_TO_WARP_RNNT_LABEL_LENGTHS'
+  LOSS_RNNT = 'KMRNNT_RNNT_LOSS'
 
   FEAT_MFCC = 'mfcc'
   FEAT_FBANK = 'fbank'
@@ -231,7 +236,7 @@ class ParseOption:
     prep_group.add_argument('--prep-text-unit', default=Constants.WORD,
                             help="Only %s and %s can be accepted"%(
                                 Constants.WORD, Constants.CHAR))
-    prep_group.add_argument("--prep-max-duration", type=int,
+    prep_group.add_argument("--prep-max-duration", type=int, default=-1,
                             help="max duration of input speech in seconds")
 
     # Please register the boolean variables to the blist.

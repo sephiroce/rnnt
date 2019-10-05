@@ -7,7 +7,7 @@ import os
 from keras.models import model_from_json
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger, ParseOption, ExitCode
-from base.data_generator import AudioGenerator
+from base.data_generator_rnnt import AudioGenerator
 from ctc import KMCTC
 
 def main():

@@ -19,7 +19,7 @@ from keras.layers import CuDNNLSTM, \
 
 from base.common import Constants, Logger, ParseOption, ExitCode
 from base.utils import KmRNNTUtil as Util
-from base.data_generator import AudioGenerator
+from base.data_generator_ctc import AudioGeneratorForCTC
 
 class KMCTC:
   @staticmethod
@@ -236,7 +236,7 @@ def main():
     logger.info("Saved a meta file of a training model to %s", train_json)
 
   # create a class instance for obtaining batches of data
-  audio_gen = AudioGenerator(logger, config, vocab)
+  audio_gen = AudioGeneratorForCTC(logger, config, vocab)
 
   # add the training data to the generator
   audio_gen.load_train_data(Util.get_file_path(config.paths_data_path,

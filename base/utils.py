@@ -9,6 +9,26 @@ from base.common import Constants, ExitCode
 
 class KmRNNTUtil:
   @staticmethod
+  def get_int_seq(text, is_char, vocab, offset=0):
+    int_seq = list()
+
+    if is_char:
+      for char in text.strip():
+        if char in vocab:
+          int_seq.append(vocab[char] + offset)
+        elif char == ' ':
+          int_seq.append(vocab[Constants.SPACE] + offset)
+        else:
+          sys.exit(ExitCode.NOT_SUPPORTED)
+    else:
+      for bpe in text.strip().split(" "):
+        if bpe in vocab:
+          int_seq.append(vocab[bpe] + offset)
+        else:
+          int_seq.append(vocab[Constants.UNK] + offset)
+    return int_seq
+
+  @staticmethod
   def get_file_path(data_path: str, file_path: str) -> str:
     """
     In order to handle both absolute paths and relative paths, it returns an
@@ -32,31 +52,40 @@ class KmRNNTUtil:
     """
     y_trans, y_pred, labels, input_length, label_length = args
     import keras.backend as K
+    import tensorflow as tf
+
+    """
+    acts = tf.placeholder(tf.float32, [None, None, None, None])
+    """
 
     # calculating lattices from the output from the prediction network and
     # the transcription network.
     batch_size = K.shape(y_trans)[0]
     time_index = K.shape(y_trans)[1]
     label_sequence_length = K.shape(y_pred)[1]
-    vocab_n = K.shape(y_trans)[2]
+    output_size = K.shape(y_trans)[2] # K + 1
+
+    # tf.shape(y_trans) = [B, T, V]
+    y_trans = K.reshape(K.tile(y_trans, [1, label_sequence_length, 1]),
+                        [batch_size,
+                         time_index,
+                         label_sequence_length,
+                         output_size])
 
     # tf.shape(y_pred) = [B, U+1, V]
-    y_trans = K.reshape(K.tile(y_trans, [1, label_sequence_length, 1]),
-                        [batch_size, time_index,
-                         label_sequence_length, vocab_n])
     y_pred = K.reshape(K.tile(y_pred, [1, time_index, 1]),
-                       [batch_size, time_index,
-                        label_sequence_length, vocab_n])
+                       [batch_size,
+                        time_index,
+                        label_sequence_length,
+                        output_size])
 
-    logit_lattice = K.exp(y_trans + y_pred)
-    acts = K.softmax(logit_lattice, axis=3)
+    acts = tf.nn.log_softmax(K.exp(y_trans + y_pred))
 
+    input_length = K.reshape(input_length, [batch_size])
+    label_length = K.reshape(label_length, [batch_size])
     from warprnnt_tensorflow import rnnt_loss
-    return rnnt_loss(acts,
-                     K.cast(labels, 'int32'),
-                     K.cast(input_length, 'int32'),
-                     K.cast(label_length, 'int32'),
-                     29)
+    list_value = rnnt_loss(acts, labels, input_length, label_length)
+    return tf.reshape(list_value,[batch_size])
 
   @staticmethod
   def ctc_lambda_func(args):

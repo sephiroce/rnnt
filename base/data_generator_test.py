@@ -5,7 +5,7 @@ This is not a completed unit test code.
 """
 import os
 import sys
-from base.data_generator import AudioGenerator
+from base.data_generator_rnnt import AudioGenerator
 from base.utils import KmRNNTUtil as Util
 from base.common import Logger, ParseOption, ExitCode
 
