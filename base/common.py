@@ -7,7 +7,7 @@ import os
 import sys
 import argparse
 
-class Constants:
+class Constants(object): # pylint: disable=no-init
   TRAINING = "Train"
   VALIDATION = "Valid"
   EVALUATION = "Test"
@@ -38,16 +38,18 @@ class Constants:
   INPUT_LABEL = 'KMRNNT_INPUT_TO_WARP_RNNT_LABELS'
   INPUT_INLEN = 'KMRNNT_INPUT_TO_WARP_RNNT_INPUT_LENGTHS'
   INPUT_LBLEN = 'KMRNNT_INPUT_TO_WARP_RNNT_LABEL_LENGTHS'
+  OUTPUT_TRANS = 'KMRNNT_OUTPUT_FROM_TRANSCRIPTION_NETWORK' # not using now
+  OUTPUT_PREDS = 'KMRNNT_OUTPUT_FROM____PREDICTION_NETWORK' # not using now
   LOSS_RNNT = 'KMRNNT_RNNT_LOSS'
 
   FEAT_MFCC = 'mfcc'
   FEAT_FBANK = 'fbank'
 
-class CmvnFiles:
+class CmvnFiles(object): # pylint: disable=no-init
   mean = "cmvn.mean"
   std = "cmvn.std"
 
-class ExitCode:
+class ExitCode(object): # pylint: disable=no-init
   NO_DATA = 0
   NOT_SUPPORTED = 1
   INVALID_OPTION = 11
@@ -57,7 +59,7 @@ class ExitCode:
   INVALID_FILE_PATH = 15
   INVALID_DICTIONARY = 16
 
-class Logger:
+class Logger(object):
   """
   !!Usage: please create a logger with one line as shown in the example below.
     logger = Logger(name = "word2vec", level = Logger.DEBUG).logger
@@ -93,15 +95,15 @@ class Logger:
     self.logger.propagate = False
     self.logger.addHandler(handle)
 
-class ParseOption:
+class ParseOption(object):
   """
   it merges options from both an option file and command line into python option
   """
   def __init__(self, argv, logger):
     self.logger = logger
 
-    parser, _ = self.build_parser()
-    dparser, blist = self.build_parser()
+    parser = self.build_parser()
+    dparser = self.build_parser()
 
     if len(argv) > 1:
       # args from command line
@@ -115,7 +117,8 @@ class ParseOption:
 
       data_path = command_args.paths_data_path
       file_path = command_args.config
-      if not os.path.exists(file_path):
+
+      if data_path and not os.path.exists(file_path):
         file_path = data_path + "/" + file_path
 
       config_args = parser.parse_args(["@" + file_path])
@@ -128,12 +131,6 @@ class ParseOption:
         sys.exit(ExitCode.INVALID_OPTION)
       config_dict = vars(config_args)
       default_dict = vars(default_args)
-
-      # handling boolean
-      for arg in default_dict:
-        if arg in blist:
-          command_dict[arg] = (str(command_dict[arg]) == "True")
-          config_dict[arg] = (str(config_dict[arg]) == "True")
 
       for arg in default_dict:
         if arg != "config" and arg not in command_dict or \
@@ -173,6 +170,10 @@ class ParseOption:
       self.logger.critical("No options..")
       sys.exit(ExitCode.INVALID_OPTION)
 
+  @staticmethod
+  def str2bool(bool_string):
+    return bool_string.lower() in ("yes", "true", "t", "1")
+
   @property
   def args(self):
     return self._args
@@ -209,7 +210,6 @@ class ParseOption:
   @staticmethod
   def build_parser():
     # create parser
-    blist = list()
     parser = argparse.ArgumentParser(description="Keras based RNN-LM Toolkit ",
                                      fromfile_prefix_chars='@')
     parser.add_argument("--config",
@@ -219,15 +219,15 @@ class ParseOption:
     prep_group = parser.add_argument_group(title="pre-processing",
                                            description="options related to "
                                                        "text pre-processing")
-    prep_group.add_argument('--prep-use-unk', default=False,
+    prep_group.add_argument('--prep-use-unk', default=False, type=ParseOption.str2bool,
                             help="a unk (unknown symbol) is used or not.")
-    prep_group.add_argument('--prep-use-bos', default=False,
+    prep_group.add_argument('--prep-use-bos', default=False, type=ParseOption.str2bool,
                             help="Whether a bos (beginning of sentence) "
                                  "symbol is used or not.")
-    prep_group.add_argument('--prep-use-eos', default=False,
+    prep_group.add_argument('--prep-use-eos', default=False, type=ParseOption.str2bool,
                             help="Whether a eos (end of sentence) symbol is "
                                  "used or not.")
-    prep_group.add_argument('--prep-use-beos', default=False,
+    prep_group.add_argument('--prep-use-beos', default=False, type=ParseOption.str2bool,
                             help="Whether symbols for bos and eos are used "
                                  "as one symbol.")
     prep_group.add_argument('--prep-max-string-length', type=int, default=-1,
@@ -238,12 +238,6 @@ class ParseOption:
                                 Constants.WORD, Constants.CHAR))
     prep_group.add_argument("--prep-max-duration", type=int, default=-1,
                             help="max duration of input speech in seconds")
-
-    # Please register the boolean variables to the blist.
-    blist.append("prep_use_bos")
-    blist.append("prep_use_beos")
-    blist.append("prep_use_eos")
-    blist.append("prep_use_unk")
 
     # Hyper-parameters for training
     train_group = \
@@ -286,17 +280,12 @@ class ParseOption:
     train_group.add_argument("--train-clipping-norm", type=float,
                              default=5.0,
                              help="norm for clipping gradients")
-    train_group.add_argument("--train-learning-rate-decay", type=float,
+    train_group.add_argument("--train-decay", type=float,
                              default=0.0, help="decaying learning rate")
-    train_group.add_argument("--train-keep-prob", type=float, default=1,
-                             help="drop out, default = 1 to keep all")
-    train_group.add_argument("--train-learning-rate-momentum", type=float,
+    train_group.add_argument("--train-momentum", type=float,
                              default=0.9, help="momentum for learning rate")
-    train_group.add_argument("--train-is-nesterov", type=bool,
+    train_group.add_argument("--train-is-nesterov", type=ParseOption.str2bool,
                              default="True", help="is using nesterov momentum?")
-
-    # Please register the boolean variables to the blist.
-    blist.append("train_is_nesterov")
 
     # Paths
     path_group = parser.add_argument_group(title="paths",
@@ -307,15 +296,12 @@ class ParseOption:
     path_group.add_argument("--paths-data-path", help="base path")
     path_group.add_argument("--paths-vocab",
                             help="vocab file")
-    path_group.add_argument('--paths-clean-up', default=False,
+    path_group.add_argument('--paths-clean-up', type=ParseOption.str2bool, default=False,
                             help="cleaning up previous models and graphs")
     path_group.add_argument('--paths-model-json', default=None,
                             help="model json")
     path_group.add_argument('--paths-model-h5', default=None,
                             help="model h5")
-
-    # Please register the boolean variables to the blist.
-    blist.append("paths_clean_up")
 
     # Feature
     feature_group = parser.add_argument_group(title="feature",
@@ -325,16 +311,40 @@ class ParseOption:
     feature_group.add_argument("--feature-dimension", type=int, default=40,
                                help="feature dimension")
 
-    # Model architecture
+    # Encoder architecture
+    encoder_group = parser.add_argument_group(title="encoder architecture",
+                                              description="hyper-parameter "
+                                                          "for each layers")
+
+    encoder_group.add_argument("--encoder-encoder-number-of-layer", type=int,
+                               help="number of hidden layers")
+    encoder_group.add_argument("--encoder-layer-size", type=int,
+                               help="size of a hidden layer")
+    encoder_group.add_argument("--encoder-number-of-layer", type=int,
+                               help="number of hidden layers")
+    encoder_group.add_argument("--encoder-rnn-direction", default="bi",
+                               help="uni or bi")
+    encoder_group.add_argument("--encoder-dropout", type=float, default=0.0,
+                               help="drop out, default = 0 to keep all")
+
+    # Decoder architecture
+    decoder_group = parser.add_argument_group(title="decoder architecture",
+                                              description="hyper-parameter for "
+                                                          "each layers")
+
+    decoder_group.add_argument("--decoder-encoder-number-of-layer", type=int,
+                               help="number of hidden layers")
+    decoder_group.add_argument("--decoder-layer-size", type=int,
+                               help="size of a hidden layer")
+    decoder_group.add_argument("--decoder-number-of-layer", type=int,
+                               help="number of hidden layers")
+    encoder_group.add_argument("--decoder-dropout", type=float, default=0.0,
+                               help="drop out, default = 0 to keep all")
+
+    # Setting for the entire model
     model_group = parser.add_argument_group(title="model architecture",
                                             description="hyper-parameter for "
-                                                        "each layers")
-    model_group.add_argument("--model-number-of-layer", type=int,
-                             help="number of hidden layers")
-    model_group.add_argument("--model-layer-size", type=int,
-                             help="size of a hidden layer")
-    model_group.add_argument("--model-rnn-direction", default="bi",
-                             help="uni or bi")
+                                                        "the entire model")
     model_group.add_argument("--model-init-scale", type=float,
                              default=0.1,
                              help="Initial scale of variables [-val, val], "
@@ -344,4 +354,13 @@ class ParseOption:
     device_group = parser.add_argument_group(title="device")
     device_group.add_argument("--device-number-of-gpu", type=int, default=1)
 
-    return parser, blist
+    return parser
+
+def main():
+  logger = Logger(name="RNN-T Configurations", level=Logger.DEBUG).logger
+
+  # Configurations
+  ParseOption(sys.argv, logger)
+
+if __name__ == "__main__":
+  main()

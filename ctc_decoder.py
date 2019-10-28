@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-locals, no-member
+# pylint: disable=too-many-locals, no-member, import-error, no-name-in-module
 
 import sys
-
 import os
+
 from keras.models import model_from_json
-from base.utils import KmRNNTUtil as Util
+
+from base.util import Util
 from base.common import Logger, ParseOption, ExitCode
-from base.data_generator_rnnt import AudioGenerator
-from ctc import KMCTC
+from base.data_generator_ctc import AudioGeneratorForCTC
+from ctc import KerasCTC
 
 def main():
   logger = Logger(name="KmRNNT_CTC_Decoder", level=Logger.DEBUG).logger
@@ -35,7 +36,7 @@ def main():
   model.load_weights(model_weight_path)
   model.summary()
 
-  audio_gen = AudioGenerator(logger, config, vocab)
+  audio_gen = AudioGeneratorForCTC(logger, config, vocab)
 
   # CMVN
   audio_gen.load_train_data(Util.get_file_path(config.paths_data_path,
@@ -48,7 +49,7 @@ def main():
     for i, val in enumerate(audio_gen.next_test()):
       if i == len(audio_gen.test_audio_paths):
         break
-      result = KMCTC.get_result_str(model.predict(val[0]), id_to_word)
+      result = KerasCTC.get_result_str(model.predict(val[0]), id_to_word)
       logger.info("UTT%03d: %s", i+1, result)
       utt_file.write("%s (spk-%d)\n"%(result, i+1))
   logger.info("UTT File saved into %s.utt", sys.argv[4])

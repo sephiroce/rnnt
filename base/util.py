@@ -7,7 +7,7 @@ import numpy as np
 from scipy.io import wavfile # reading the wavfile
 from base.common import Constants, ExitCode
 
-class KmRNNTUtil:
+class Util:
   @staticmethod
   def get_int_seq(text, is_char, vocab, offset=0):
     int_seq = list()
@@ -29,7 +29,7 @@ class KmRNNTUtil:
     return int_seq
 
   @staticmethod
-  def get_file_path(data_path: str, file_path: str) -> str:
+  def get_file_path(data_path, file_path):
     """
     In order to handle both absolute paths and relative paths, it returns an
     exist path among combinations of data_path and file_path.
@@ -46,17 +46,13 @@ class KmRNNTUtil:
   @staticmethod
   def rnnt_lambda_func(args):
     """
-    TODO this is not fully functional yet!
+
     :param args:
     :return:
     """
     y_trans, y_pred, labels, input_length, label_length = args
     import keras.backend as K
     import tensorflow as tf
-
-    """
-    acts = tf.placeholder(tf.float32, [None, None, None, None])
-    """
 
     # calculating lattices from the output from the prediction network and
     # the transcription network.
@@ -79,13 +75,17 @@ class KmRNNTUtil:
                         label_sequence_length,
                         output_size])
 
+    # acts = tf.placeholder(tf.float32, [None, None, None, None])
     acts = tf.nn.log_softmax(K.exp(y_trans + y_pred))
 
     input_length = K.reshape(input_length, [batch_size])
     label_length = K.reshape(label_length, [batch_size])
+
     from warprnnt_tensorflow import rnnt_loss
-    list_value = rnnt_loss(acts, labels, input_length, label_length)
-    return tf.reshape(list_value,[batch_size])
+    list_value = rnnt_loss(acts, labels, input_length, label_length,
+                           blank_label=61)
+
+    return tf.reshape(list_value, [batch_size])
 
   @staticmethod
   def ctc_lambda_func(args):
@@ -182,7 +182,7 @@ class KmRNNTUtil:
     return filter_banks
 
   @staticmethod
-  def load_vocab(path, config) -> (dict, list):
+  def load_vocab(path, config):
     """
     :param path: vocabulary file
     :param config: RNN-LM config
@@ -231,3 +231,36 @@ class KmRNNTUtil:
       sys.exit(ExitCode.INVALID_DICTIONARY)
 
     return word_to_id, id_to_word
+
+  @staticmethod
+  def softmax(value, is_log=False, axis=None):
+    if axis is not None:
+      assert axis == 0
+      e_x = []
+      for elem in value:
+        e_x.append(Util.softmax(elem))
+    else:
+      e_x = np.exp(value - np.max(value))
+      e_x = e_x / e_x.sum()
+
+    if is_log:
+      return np.log(e_x)
+    return e_x
+
+  @staticmethod
+  def one_hot(value, dim):
+    """
+
+    :param value: a sequence of token indexes
+    :param dim: a dimension of one hot vectors
+    :return: a sequence of one hot token vectors
+    """
+
+    one_hot_encodeds = []
+    for token_id in value:
+      one_hot_encoded = np.zeros(dim).tolist()
+      # blank labels can be represented by zero vectors
+      if token_id < dim:
+        one_hot_encoded[token_id] = 1
+      one_hot_encodeds.append(one_hot_encoded)
+    return one_hot_encodeds

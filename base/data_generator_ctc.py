@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-instance-attributes, too-many-arguments
-# pylint: disable=too-many-locals, too-many-branches, too-many-statements
+# pylint: disable=too-many-instance-attributes, too-many-arguments, no-name-in-module
+# pylint: disable=too-many-locals, too-many-branches, import-error
 
 """
 This is a customized version of an AudioGenerator class of lucko515.
@@ -17,15 +17,15 @@ import numpy as np
 import scipy.io.wavfile as wav
 from python_speech_features import mfcc
 from base.common import Constants
-from base.utils import KmRNNTUtil as Util
+from base.util import Util
 
 RNG_SEED = 123
 
-class AudioGeneratorForCTC:
+class AudioGeneratorForCTC(object):
   def __init__(self, logger, config, vocab):
     """
     Params:
-      step (int): Step size in milliseconds between windows (for spectrogram 
+      step (int): Step size in milliseconds between windows (for spectrogram
       ONLY)
       desc_file (str, optional): Path to a JSON-line file that contains
         labels and paths to the audio files. If this is None, then
@@ -139,7 +139,7 @@ class AudioGeneratorForCTC:
               Constants.KEY_LABEL: labels,
               Constants.KEY_INLEN: input_length,
               Constants.KEY_LBLEN: label_length
-              }
+             }
 
     outputs = {Constants.KEY_CTCLS: np.zeros([batch_size])}
 
@@ -232,7 +232,7 @@ class AudioGeneratorForCTC:
           audio_paths.append(spec[Constants.KEY])
           durations.append(float(spec[Constants.DURATION]))
           texts.append(spec[Constants.TEXT])
-        except json.decoder.JSONDecodeError as err:
+        except json.decoder.JSONDecodeError as err: #pylint: disable=no-member
           # json module version
           self.logger.error('Error reading line #{}: {}, {}'.format(line_num,
                                                                     json_line,

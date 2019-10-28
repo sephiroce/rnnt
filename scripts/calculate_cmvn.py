@@ -1,6 +1,6 @@
 import sys
 import numpy as np
-import base.utils as utils
+import base.util as utils
 
 base_path = sys.argv[1]
 feats = list()

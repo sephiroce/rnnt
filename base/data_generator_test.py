@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=no-member
+# pylint: disable=no-member, no-name-in-module, import-error
+
 """
 This is not a completed unit test code.
 """
 import os
 import sys
-from base.data_generator_rnnt import AudioGenerator
-from base.utils import KmRNNTUtil as Util
+from base.data_generator_rnnt import AudioGeneratorForRNNT
+from base.util import Util
 from base.common import Logger, ParseOption, ExitCode
 
 def main():
@@ -22,7 +23,7 @@ def main():
     sys.exit(ExitCode.INVALID_FILE_PATH)
   vocab, _ = Util.load_vocab(vocab_path, config=config)
 
-  audio_gen = AudioGenerator(logger, config, vocab)
+  audio_gen = AudioGeneratorForRNNT(logger, config, vocab)
 
   #add the training data to the generator
   audio_gen.load_train_data("base/test/test_corpus.json")

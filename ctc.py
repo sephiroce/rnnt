@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-#pylint: disable=too-many-locals, no-member
+#pylint: disable=too-many-locals, no-member, import-error, no-name-in-module
 
 """ctc.py: Building CTC models for ASR tasks."""
 
@@ -18,10 +18,11 @@ from keras.layers import CuDNNLSTM, \
   Bidirectional, Dense, Activation, TimeDistributed, Lambda, Input
 
 from base.common import Constants, Logger, ParseOption, ExitCode
-from base.utils import KmRNNTUtil as Util
+from base.util import Util
 from base.data_generator_ctc import AudioGeneratorForCTC
 
-class KMCTC:
+
+class KerasCTC(object): # pylint: disable=no-init
   @staticmethod
   def get_result_str(utt, id_to_word, is_char=False):
     sent = ""
@@ -67,7 +68,7 @@ class KMCTC:
       model_4_training = model_from_json(json_file.read())
       model_4_training.load_weights(train_h5)
 
-    return KMCTC.compile_models(model_4_training, model_4_decoding, config)
+    return KerasCTC.compile_models(model_4_training, model_4_decoding, config)
 
   @staticmethod
   def compile_models(model_4_training, model_4_decoding, config):
@@ -154,7 +155,7 @@ class KMCTC:
       ([y_pred] + [label, input_length, label_length])
 
     # Setting decoder
-    out_decoded_dense = Lambda(KMCTC.ctc_complete_decoding_lambda_func,
+    out_decoded_dense = Lambda(KerasCTC.ctc_complete_decoding_lambda_func,
                                output_shape=(None, None),
                                name=Constants.KEY_CTCDE,
                                arguments={'greedy': False,
@@ -169,7 +170,7 @@ class KMCTC:
     model_4_decoding = Model(inputs=[input_data] + [input_length],
                              outputs=out_decoded_dense)
 
-    return KMCTC.compile_models(model_4_training, model_4_decoding, config)
+    return KerasCTC.compile_models(model_4_training, model_4_decoding, config)
 
 def main():
   logger = Logger(name="KmCTC", level=Logger.DEBUG).logger
@@ -209,15 +210,15 @@ def main():
     os.path.isfile(train_json) and \
     os.path.isfile(train_h5):
     model_4_training, model_4_decoding = \
-      KMCTC.loading_model(infer_json=infer_json,
-                          infer_h5=infer_h5,
-                          train_json=train_json,
-                          train_h5=train_h5,
-                          config=config)
+      KerasCTC.loading_model(infer_json=infer_json,
+                             infer_h5=infer_h5,
+                             train_json=train_json,
+                             train_h5=train_h5,
+                             config=config)
     logger.info("A model was loaded.")
   else:
     model_4_training, model_4_decoding = \
-      KMCTC.create_model(logger, config, vocab)
+      KerasCTC.create_model(logger, config, vocab)
     logger.info("A model was created.")
 
   model_4_training.summary()
@@ -279,8 +280,8 @@ def main():
 
   # saving pickle_path
   with open("%s/checkpoints/%s_ctc_loss.pkl"%(config.paths_data_path,
-                                              model_name), 'wb') as file:
-    pickle.dump(hist.history, file)
+                                              model_name), 'wb') as pkl_file:
+    pickle.dump(hist.history, pkl_file)
 
 if __name__ == "__main__":
   main()

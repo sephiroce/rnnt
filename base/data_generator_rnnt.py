@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-instance-attributes, too-many-arguments
-# pylint: disable=too-many-locals, too-many-branches, too-many-statements
+# pylint: disable=too-many-instance-attributes, too-many-arguments, no-name-in-module
+# pylint: disable=too-many-locals, too-many-branches, import-error
 
 """
 This is a customized version of an AudioGenerator class of lucko515.
@@ -17,15 +17,15 @@ import numpy as np
 import scipy.io.wavfile as wav
 from python_speech_features import mfcc
 from base.common import Constants
-from base.utils import KmRNNTUtil as Util
+from base.util import Util
 
 RNG_SEED = 123
 
-class AudioGeneratorForRNNT:
+class AudioGeneratorForRNNT(object):
   def __init__(self, logger, config, vocab):
     """
     Params:
-      step (int): Step size in milliseconds between windows (for spectrogram 
+      step (int): Step size in milliseconds between windows (for spectrogram
       ONLY)
       desc_file (str, optional): Path to a JSON-line file that contains
         labels and paths to the audio files. If this is None, then
@@ -93,10 +93,10 @@ class AudioGeneratorForRNNT:
     # plus two for BOS and EOS
     if self.is_char:
       max_stri_len = max([len(texts[cur_index + i])
-                               for i in range(0, batch_size)])
+                          for i in range(0, batch_size)])
     else:
       max_stri_len = max([len(texts[cur_index+i].split(" "))
-                               for i in range(0, batch_size)])
+                          for i in range(0, batch_size)])
 
     # initialize the arrays
     # Input for each network
@@ -119,8 +119,8 @@ class AudioGeneratorForRNNT:
                                  self.is_char, self.vocab, 1)
       label_rnnt[i, :len(int_seq)] = np.array(int_seq)
       label_length[i] = len(int_seq)
-      for j in range(len(int_seq)):
-        input_pred[i, j + 1, int_seq[j] - 1] = 1
+      for elem_idx, elem in enumerate(int_seq):
+        input_pred[i, elem_idx + 1, elem - 1] = 1
 
     # return the arrays
     inputs = {Constants.INPUT_TRANS: input_tran,   # [B, T, F]
@@ -128,7 +128,7 @@ class AudioGeneratorForRNNT:
               Constants.INPUT_INLEN: input_length, # [B] : T
               Constants.INPUT_LBLEN: label_length, # [B] : U
               Constants.INPUT_LABEL: label_rnnt    # [B, U]
-              }
+             }
 
     outputs = {Constants.LOSS_RNNT: np.zeros([batch_size])}
 
@@ -221,11 +221,10 @@ class AudioGeneratorForRNNT:
           audio_paths.append(spec[Constants.KEY])
           durations.append(float(spec[Constants.DURATION]))
           texts.append(spec[Constants.TEXT])
-        except json.decoder.JSONDecodeError as err:
+        except json.decoder.JSONDecodeError as err: #pylint: disable=no-member
           # json module version
-          self.logger.error('Error reading line #{}: {}, {}'.format(line_num,
-                                                                    json_line,
-                                                                    err.msg))
+          self.logger.error('Error reading line #{}: {}, {}'
+                            .format(line_num, json_line, err.msg))
     if partition == Constants.TRAINING:
       self.train_audio_paths = audio_paths
       self.train_durations = durations
@@ -263,7 +262,7 @@ class AudioGeneratorForRNNT:
       audio_clip (str): Path to the audio clip
     """
     if self.feat_type == Constants.FEAT_MFCC:
-      (rate, sig) = wav.read(self.basepath + "/" + audio_clip)
+      (rate, sig) = wav.read(Util.get_file_path(self.basepath, audio_clip))
       return mfcc(sig, rate, numcep=self.feat_dim)
 
     if self.feat_type == Constants.FEAT_FBANK:
