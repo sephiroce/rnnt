@@ -2,6 +2,11 @@
 # pylint: disable=too-few-public-methods, too-many-locals, no-member,
 # pylint: disable=too-many-statements
 
+"""common.py: global functionaries for python programs"""
+
+__author__ = "Kyungmin Lee"
+__email__ = "sephiroce@snu.ac.kr"
+
 import logging
 import os
 import sys
@@ -26,21 +31,18 @@ class Constants(object): # pylint: disable=no-init
   CHAR = 'char'
   BI_DIRECTION = 'bi'
 
-  KEY_INPUT = 'KMRNNT_INPUT_SPEECH'
-  KEY_LABEL = 'KMRNNT_INPUT_LABELS'
-  KEY_INLEN = 'KMRNNT_INPUT_LENGTH'
-  KEY_LBLEN = 'KMRNNT_LABEL_LENGTH'
-  KEY_CTCLS = 'KMRNNT_____CTC_LOSS'
-  KEY_CTCDE = 'KMRNNT_CTC_DECODING'
+  KEY_CTCDE = 'KEY_CTCDE'
 
-  INPUT_TRANS = 'KMRNNT_INPUT_TO_TRANSCRIPTION_NETWORK'
-  INPUT_PREDS = 'KMRNNT_INPUT_TO____PREDICTION_NETWORK'
-  INPUT_LABEL = 'KMRNNT_INPUT_TO_WARP_RNNT_LABELS'
-  INPUT_INLEN = 'KMRNNT_INPUT_TO_WARP_RNNT_INPUT_LENGTHS'
-  INPUT_LBLEN = 'KMRNNT_INPUT_TO_WARP_RNNT_LABEL_LENGTHS'
-  OUTPUT_TRANS = 'KMRNNT_OUTPUT_FROM_TRANSCRIPTION_NETWORK' # not using now
-  OUTPUT_PREDS = 'KMRNNT_OUTPUT_FROM____PREDICTION_NETWORK' # not using now
-  LOSS_RNNT = 'KMRNNT_RNNT_LOSS'
+  INPUT_TRANS = 'INPUT_TRANS'
+  INPUT_PREDS = 'INPUT_PREDS'
+  INPUT_LABEL = 'INPUT_LABEL'
+  INPUT_INLEN = 'INPUT_INLEN'
+  INPUT_LBLEN = 'INPUT_LBLEN'
+  OUTPUT_TRANS = 'OUTPUT_TRANS'
+  OUTPUT_PREDS = 'OUTPUT_PREDS'
+
+  LOSS_CTC = 'LOSS_CTC'
+  LOSS_RNNT = 'LOSS_RNNT'
 
   FEAT_MFCC = 'mfcc'
   FEAT_FBANK = 'fbank'
@@ -274,9 +276,6 @@ class ParseOption(object):
     train_group.add_argument('--train-norm-l2', type=float, default=0.0,
                              help="Scaling factor for L2 norm, if it is 0.0 "
                                   "then L2 norm won't be calculated.")
-    train_group.add_argument("--train-clipping-global-norm", type=float,
-                             default=5.0,
-                             help="global norm for clipping gradients")
     train_group.add_argument("--train-clipping-norm", type=float,
                              default=5.0,
                              help="norm for clipping gradients")
@@ -286,6 +285,8 @@ class ParseOption(object):
                              default=0.9, help="momentum for learning rate")
     train_group.add_argument("--train-is-nesterov", type=ParseOption.str2bool,
                              default="True", help="is using nesterov momentum?")
+    train_group.add_argument("--train-gaussian-noise", type=float,
+                             default=0.0, help="gaussian weight noise")
 
     # Paths
     path_group = parser.add_argument_group(title="paths",
@@ -302,6 +303,12 @@ class ParseOption(object):
                             help="model json")
     path_group.add_argument('--paths-model-h5', default=None,
                             help="model h5")
+    path_group.add_argument('--paths-train-corpus', default="train_corpus.json",
+                            help="train corpus")
+    path_group.add_argument('--paths-valid-corpus', default="valid_corpus.json",
+                            help="valid corpus")
+    path_group.add_argument('--paths-test-corpus', default="test_corpus.json",
+                            help="test corpus")
 
     # Feature
     feature_group = parser.add_argument_group(title="feature",
@@ -315,9 +322,6 @@ class ParseOption(object):
     encoder_group = parser.add_argument_group(title="encoder architecture",
                                               description="hyper-parameter "
                                                           "for each layers")
-
-    encoder_group.add_argument("--encoder-encoder-number-of-layer", type=int,
-                               help="number of hidden layers")
     encoder_group.add_argument("--encoder-layer-size", type=int,
                                help="size of a hidden layer")
     encoder_group.add_argument("--encoder-number-of-layer", type=int,
@@ -331,9 +335,6 @@ class ParseOption(object):
     decoder_group = parser.add_argument_group(title="decoder architecture",
                                               description="hyper-parameter for "
                                                           "each layers")
-
-    decoder_group.add_argument("--decoder-encoder-number-of-layer", type=int,
-                               help="number of hidden layers")
     decoder_group.add_argument("--decoder-layer-size", type=int,
                                help="size of a hidden layer")
     decoder_group.add_argument("--decoder-number-of-layer", type=int,
@@ -349,6 +350,13 @@ class ParseOption(object):
                              default=0.1,
                              help="Initial scale of variables [-val, val], "
                                   "default = 0.1")
+
+    # Inference option
+    inference_group = parser.add_argument_group()
+    inference_group.add_argument("--inference-is-debug", type=ParseOption.str2bool, default="False",
+                                 help="true means storing softmax sequences to check")
+    inference_group.add_argument("--inference-beam-width", type=int, default=12,
+                                 help="beam width for beam search decoding")
 
     # Device
     device_group = parser.add_argument_group(title="device")

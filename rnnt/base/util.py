@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-arguments, too-many-locals, import-error
 
+"""util.py: Utilities for ASR systems"""
+
+__author__ = "Kyungmin Lee"
+__email__ = "sephiroce@snu.ac.kr"
+
 import os
 import sys
 import numpy as np
-from scipy.io import wavfile # reading the wavfile
-from base.common import Constants, ExitCode
+from scipy.io import wavfile
+from scipy.fftpack import dct
+from rnnt.base.common import Constants, ExitCode
 
 class Util:
   @staticmethod
@@ -83,23 +89,44 @@ class Util:
 
     from warprnnt_tensorflow import rnnt_loss
     list_value = rnnt_loss(acts, labels, input_length, label_length,
-                           blank_label=61)
+                           blank_label=39) # How can I get the number of tokens?
 
     return tf.reshape(list_value, [batch_size])
 
   @staticmethod
+  def get_result_str(utt, id_to_word, is_char=False):
+    sent = ""
+    for chars in utt:
+      if is_char:
+        for char in chars:
+          if char < 0:
+            break
+          if id_to_word[int(char)] == Constants.SPACE:
+            sent += " "
+          else:
+            sent += id_to_word[int(char)]
+      else:
+        for word in chars:
+          if word < 0:
+            break
+          sent += id_to_word[int(word)] +" "
+    return sent.strip()
+
+  @staticmethod
   def ctc_lambda_func(args):
     y_pred, labels, input_length, label_length = args
+
     # the 2 is critical here since the first couple outputs of the RNN
     # tend to be garbage:
     shift = 2
     y_pred = y_pred[:, shift:, :]
     input_length -= shift
+
     from keras import backend as k
     return k.ctc_batch_cost(labels, y_pred, input_length, label_length)
 
   @staticmethod
-  def get_fbanks(path_file, frame_size=0.025, frame_stride=0.01, n_filt=40):
+  def get_fbanks(path_file, frame_size=0.025, frame_stride=0.01, n_filt=40, num_ceps=-1):
     """
     I borrowed this feature extraction code from
     https://www.kaggle.com/ybonde/log-spectrogram-and-mfcc-filter-bank-example
@@ -118,6 +145,7 @@ class Util:
     :param frame_size: the length for frame (default = 0.05, it means 50 ms)
     :param frame_stride: the length for striding (default = 0.03, it means 30
     ms)
+    :param num_ceps: mfcc dimension, if it is bigger than 0 then it returns mfcc
     :return: fbank features
     """
     sample_rate, signal = wavfile.read(path_file)
@@ -179,7 +207,16 @@ class Util:
                             filter_banks)  # Numerical Stability
     filter_banks = 20 * np.log10(filter_banks)  # dB
 
-    return filter_banks
+    if num_ceps < 0:
+      return filter_banks
+
+    mfcc = dct(filter_banks, type=2, axis=1, norm='ortho')[:, 1: (num_ceps + 1)]  # Keep 2-13
+    cep_lifter = 22
+    _, ncoeff = mfcc.shape
+    ncoeff_arange = np.arange(ncoeff)
+    lift = 1 + (cep_lifter / 2) * np.sin(np.pi * ncoeff_arange / cep_lifter)
+    mfcc *= lift
+    return mfcc
 
   @staticmethod
   def load_vocab(path, config):

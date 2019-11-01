@@ -2,18 +2,23 @@
 # pylint: disable=too-few-public-methods, too-many-locals, no-member,
 # pylint: disable=too-many-statements, no-name-in-module, import-error
 
+"""rnnt_decoder.py: RNN-T beam search decoder"""
+
+__author__ = "Kyungmin Lee"
+__email__ = "sephiroce@snu.ac.kr"
+
 import copy
 import math
-import os
 import sys
 import numpy as np
 
 from keras.models import model_from_json, Model
 from keras.optimizers import SGD
 
-from base.util import Util
-from base.common import Constants, Logger, ParseOption, ExitCode
-from base.data_generator_rnnt import AudioGeneratorForRNNT
+from rnnt.base.util import Util
+from rnnt.base.common import Constants, Logger, ParseOption
+from rnnt.base.data_generator import AudioGeneratorForRNNT
+
 
 class Sequence(object):
   """
@@ -45,6 +50,7 @@ class KerasRNNTDecoder(object):
       input_pred = None
       output_tran = None
       output_pred = None
+      model.summary()
       for layer in model.layers:
         if layer.name == Constants.INPUT_TRANS:
           input_tran = layer.input
@@ -190,11 +196,9 @@ def main():
   config = ParseOption(sys.argv, logger).args
 
   # Loading vocabs
-  vocab_path = Util.get_file_path(config.paths_data_path, config.paths_vocab)
-  if not os.path.isfile(vocab_path):
-    logger.critical("%s does not exist.", vocab_path)
-    sys.exit(ExitCode.INVALID_FILE_PATH)
-  _, vocab = Util.load_vocab(vocab_path, config=config)
+  _, vocab = Util.load_vocab(Util.get_file_path(config.paths_data_path,
+                                                config.paths_vocab),
+                             config=config)
   logger.info("%d words were loaded", len(vocab))
   logger.info("The expanded vocab size : %d", len(vocab) + 1)
   logger.info("The index of a blank symbol: %d", len(vocab))
