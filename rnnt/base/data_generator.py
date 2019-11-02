@@ -17,6 +17,7 @@ import numpy as np
 
 import scipy.io.wavfile as wav
 from python_speech_features import mfcc
+from python_speech_features.base import delta
 from rnnt.base.common import Constants
 from rnnt.base.util import Util
 
@@ -211,28 +212,62 @@ class AudioGenerator(object):
     """
     # calculating CMVN if it was not pre-calculated.
     if self.feats_mean is None or self.feats_std is None:
-      k_samples = min(k_samples, len(self.train_audio_paths))
+      if k_samples == 0:
+        self.feats_mean = 0
+        self.feats_std = 1
+        return
+      elif k_samples > 0 or k_samples > len(self.train_audio_paths):
+        k_samples = min(k_samples, len(self.train_audio_paths))
+      else:
+        k_samples = len(self.train_audio_paths)
+      self.logger.info("CMVNs are being computed for %d utterances.", k_samples)
       samples = self.rng.sample(self.train_audio_paths, k_samples)
       feats = [self.featurize(s) for s in samples]
       feats = np.vstack(feats)
       self.feats_mean = np.mean(feats, axis=0)
       self.feats_std = np.std(feats, axis=0)
 
-  def featurize(self, audio_clip):
+  def mfcc_graves_2012(self, wav_path):
+    """
+    A. Graves, Sequence Transduction with Recurrent Neural Networks, 2012
+
+    MFCC features
+    Standard speech preprocessing was applied to transform the audio files into
+    feature sequences. 26 channel mel-frequency filter bank and a pre-emphasis
+    coefficient of 0.97 were used to compute 12 mel-frequency cepstral coeffici-
+    ents plus an energy coefficient on 25ms Hamming windows at 10ms intervals.
+    Delta coefficients were added to create input sequences of length 26 vectors
+
+    For CMVN
+    and all coefficient were normalised to have mean zero and standard deviat-
+    ion one over the train- ing set. ==> please set --prep-cmvn-samples to -1.
+
+    For convenience, I set numcep to 13 and appendEnergy to True.
+    I leave as default the other options which were not mentioned in the paper
+    such as nfft, lowfreq, highfreq, ceplifter, etc.
+
+    :param wav_path: wav file path
+    :return: a feature sequence
+    """
+    (rate, sig) = wav.read(Util.get_file_path(self.basepath, wav_path))
+    mfcc_feat = \
+      mfcc(signal=sig, samplerate=rate, numcep=13, winlen=0.025, nfilt=26,
+           winstep=0.01, preemph=0.97, appendEnergy=True, winfunc=np.hamming)
+    delta_feat = delta(mfcc_feat, 1)
+    delta_mfcc_feat = np.concatenate((mfcc_feat, delta_feat), axis=1)
+    return delta_mfcc_feat
+
+  def featurize(self, wav_path):
     """ For a given audio clip, calculate the corresponding feature
     Params:
       audio_clip (str): Path to the audio clip
     """
     if self.feat_type == Constants.FEAT_MFCC:
-      (rate, sig) = wav.read(Util.get_file_path(self.basepath, audio_clip))
-      mfcc_feat = \
-        mfcc(signal=sig, samplerate=rate, numcep=self.feat_dim,
-             nfilt=40)
-      return mfcc_feat
+      return self.mfcc_graves_2012(wav_path)
 
     if self.feat_type == Constants.FEAT_FBANK:
       fbank_feat = \
-        Util.get_fbanks(Util.get_file_path(self.basepath, audio_clip),
+        Util.get_fbanks(Util.get_file_path(self.basepath, wav_path),
                         frame_size=0.025, frame_stride=0.01,
                         n_filt=self.feat_dim)
       return fbank_feat

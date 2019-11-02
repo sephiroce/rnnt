@@ -10,6 +10,7 @@ import os
 import pickle
 import glob
 import sys
+import time
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 
@@ -19,23 +20,38 @@ from rnnt.base.data_generator import AudioGeneratorForRNNT, AudioGeneratorForCTC
 from rnnt.keras_model import KerasModel
 
 def main():  # pylint: disable=too-many-locals
+  current_milli_time = int(round(time.time() * 1000))
   logger = Logger(name="KerasSeq2SeqASR", level=Logger.DEBUG).logger
 
   # Get configurations
   config = ParseOption(sys.argv, logger).args
 
-  model_type = "RNNT"
   if not config.decoder_layer_size or not config.decoder_number_of_layer:
     model_type = "CTC"
-
-  model_name = "%s_%s%s%d.lys%d_%d_lr%f_gpus%d" % (model_type,
-                                                   config.encoder_rnn_direction,
-                                                   config.feature_type,
-                                                   config.feature_dimension,
-                                                   config.encoder_number_of_layer,
-                                                   config.encoder_layer_size,
-                                                   config.train_learning_rate,
-                                                   config.device_number_of_gpu)
+    model_name = \
+      "%s_%d_%s%d_%s%dx%d_lr%.6f_%dgpus" % (model_type,
+                                            current_milli_time,
+                                            config.feature_type,
+                                            config.feature_dimension,
+                                            config.encoder_rnn_direction,
+                                            config.encoder_number_of_layer,
+                                            config.encoder_layer_size,
+                                            config.train_learning_rate,
+                                            config.device_number_of_gpu)
+  else:
+    model_type = "RNNT"
+    model_name = \
+      "%s_%d_%s%d_%s%dx%d.%dx%d_lr%.6f_%dgpus" % (model_type,
+                                                  current_milli_time,
+                                                  config.feature_type,
+                                                  config.feature_dimension,
+                                                  config.encoder_rnn_direction,
+                                                  config.encoder_number_of_layer,
+                                                  config.encoder_layer_size,
+                                                  config.decoder_number_of_layer,
+                                                  config.decoder_layer_size,
+                                                  config.train_learning_rate,
+                                                  config.device_number_of_gpu)
 
   # paths
   checkpoint_dir = config.paths_data_path + "/checkpoints/"
@@ -90,7 +106,8 @@ def main():  # pylint: disable=too-many-locals
 
   # add the training data to the generator
   audio_gen.load_train_data(Util.get_file_path(config.paths_data_path,
-                                               config.paths_train_corpus))
+                                               config.paths_train_corpus),
+                            config.prep_cmvn_samples)
   audio_gen.load_validation_data(Util.get_file_path(config.paths_data_path,
                                                     config.paths_valid_corpus))
   audio_gen.load_test_data(Util.get_file_path(config.paths_data_path,

@@ -240,6 +240,8 @@ class ParseOption(object):
                                 Constants.WORD, Constants.CHAR))
     prep_group.add_argument("--prep-max-duration", type=int, default=-1,
                             help="max duration of input speech in seconds")
+    prep_group.add_argument("--prep-cmvn-samples", type=int, default=-1,
+                            help="the number of samples for cmvn")
 
     # Hyper-parameters for training
     train_group = \
