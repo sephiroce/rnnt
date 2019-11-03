@@ -325,12 +325,12 @@ class AudioGeneratorForRNNT(AudioGenerator):
                           for i in range(0, batch_size)])
 
     # initialize the arrays
-    # Input for each network
+    # Input for each network: blank_symbol prepended.
     input_tran = np.zeros([batch_size, max_feat_len, self.feat_dim])
     input_pred = np.zeros([batch_size, max_stri_len + 1, len(self.vocab)])
 
     # Input for computing rnnt losses
-    label_rnnt = np.zeros([batch_size, max_stri_len + 1])
+    label_rnnt = np.zeros([batch_size, max_stri_len])
     input_length = np.zeros([batch_size])
     label_length = np.zeros([batch_size])
 
@@ -344,6 +344,14 @@ class AudioGeneratorForRNNT(AudioGenerator):
       Input for Predicition Network
       The length U + 1 input sequence yˆ = (∅, y1, . . . , yU) to G output 
       sequence y with ∅ prepended.
+      
+      Label is not prepended. only input sequence.
+      
+      Prediction networks lean
+      ∅ -> y1
+      y1 -> y2
+      ...
+      In this set-up, the last token in the input will be ignored.
       """
       int_seq = Util.get_int_seq(texts[cur_index + i], self.is_char, self.vocab)
       label_length[i] = len(int_seq) # U

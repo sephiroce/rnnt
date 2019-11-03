@@ -372,12 +372,6 @@ class ParseOption(object):
                                       "check")
     inference_group.add_argument("--inference-beam-width", type=int, default=12,
                                  help="beam width for beam search decoding")
-    inference_group.add_argument("--inference-save-encoder",
-                                 type=ParseOption.str2bool,
-                                 default="False",
-                                 help="Whether to save encoder layers or not."
-                                      "This is working only for the "
-                                      "rnnt_decoder module")
     inference_group.add_argument("--inference-is-encoder",
                                  type=ParseOption.str2bool,
                                  default="False",

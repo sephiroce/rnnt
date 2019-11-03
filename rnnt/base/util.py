@@ -51,17 +51,12 @@ class Util:
 
   @staticmethod
   def rnnt_lambda_func(args):
-    """
-
-    :param args:
-    :return:
-    """
     y_trans, y_pred, labels, input_length, label_length = args
     import keras.backend as K
     import tensorflow as tf
 
-    # the 2 is critical here since the first couple outputs of the RNN
-    # tend to be garbage:
+    # the 2 is critical here since the first couple outputs of the RNN tend to
+    # be garbage:
     shift = 2
     y_trans = y_trans[:, shift:, :]
     input_length -= shift
@@ -69,38 +64,15 @@ class Util:
     # calculating lattices from the output from the prediction network and
     # the transcription network.
     batch_size = K.shape(y_trans)[0]
-    time_index = K.shape(y_trans)[1]
-    label_sequence_length = K.shape(y_pred)[1]
-    output_size = K.shape(y_trans)[2] # K + 1
-
-    # tf.shape(y_trans) = [B, T, V]
-    """
-    y_trans = K.reshape(K.tile(y_trans, [1, label_sequence_length, 1]),
-                        [batch_size,
-                         time_index,
-                         label_sequence_length,
-                         output_size])
-    """
-
-    # tf.shape(y_pred) = [B, U+1, V]
-    """
-    y_pred = K.reshape(K.tile(y_pred, [1, time_index, 1]),
-                       [batch_size,
-                        time_index,
-                        label_sequence_length,
-                        output_size])
-    """
-
     y_trans = K.expand_dims(y_trans, axis=2) # BT1H
-    y_pred = K.expand_dims(y_pred, axis=1)   # B1UH
+    y_pred = K.expand_dims(y_pred, axis=1) # B1UH
     acts = tf.nn.log_softmax(y_trans + y_pred)
-
     input_length = K.reshape(input_length, [batch_size])
     label_length = K.reshape(label_length, [batch_size])
 
     from warprnnt_tensorflow import rnnt_loss
     list_value = rnnt_loss(acts, labels, input_length, label_length,
-                           blank_label=39) # How can I get the number of tokens?
+                           blank_label=39)
 
     return tf.reshape(list_value, [batch_size])
 

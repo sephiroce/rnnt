@@ -101,7 +101,8 @@ class KerasModel(object):
                                    False,
                                    Constants.OUTPUT_PREDS,
                                    0.0,
-                                   config.model_init_scale)
+                                   config.model_init_scale,
+                                   is_softmax=False)
 
       loss_out = Lambda(Util.rnnt_lambda_func, output_shape=(1,),
                         name=Constants.LOSS_RNNT) \

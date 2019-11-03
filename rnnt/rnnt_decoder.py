@@ -38,7 +38,7 @@ class Sequence(object):
       self.logp = seq.logp
 
 class KerasRNNTDecoder(object):
-  def __init__(self, logger, vocab, config):
+  def __init__(self, vocab, config):
     self.vocab_size = len(vocab)
     self.blank = self.vocab_size
     self.vocab = vocab
@@ -52,64 +52,21 @@ class KerasRNNTDecoder(object):
       model.load_weights(model_h5)
       model.summary()
 
-      input_tran = None
-      input_pred = None
-      output_tran = None
-      output_pred = None
-      layer_inlen = None
+      input_tran = model.get_layer(Constants.INPUT_TRANS).input
+      input_pred = model.get_layer(Constants.INPUT_PREDS).input
+      output_tran = model.get_layer(Constants.OUTPUT_TRANS).output
+      output_pred = model.get_layer(Constants.OUTPUT_PREDS).output
 
-      for layer in model.layers:
-        if layer.name == Constants.INPUT_TRANS:
-          input_tran = layer.input
-        if layer.name == Constants.INPUT_PREDS:
-          input_pred = layer.input
-        if layer.name == Constants.OUTPUT_TRANS:
-          output_tran = layer.output
-        if layer.name == Constants.OUTPUT_PREDS:
-          output_pred = layer.output
-        if layer.name == Constants.INPUT_INLEN:
-          layer_inlen = layer
-
-      self.encoder = Model(inputs=input_tran, outputs=output_tran,
-                           name="encoder")
-      self.decoder = Model(inputs=input_pred, outputs=output_pred,
-                           name="decoder")
+      self.encoder = \
+        Model(inputs=input_tran, outputs=output_tran, name="encoder")
+      self.decoder = \
+        Model(inputs=input_pred, outputs=output_pred, name="decoder")
       self.encoder.compile(loss="categorical_crossentropy",
                            optimizer=SGD(lr=0.0))
       self.decoder.compile(loss="categorical_crossentropy",
                            optimizer=SGD(lr=0.0))
       self.encoder.summary()
       self.decoder.summary()
-
-      # saving rnnt_weight for ctc_decoder
-      if config.inference_save_encoder:
-        y_trans = Activation("softmax", name="encoder_softmax")(
-          self.encoder.get_layer(
-          Constants.OUTPUT_TRANS).output)
-
-        # a dummy decode lambda function, it will be replaced during decoding.
-        out_decoded_dense = \
-          Lambda(KerasCTCDecoder.ctc_complete_decoding_lambda_func,
-                 output_shape=(None, None),
-                 name=Constants.KEY_CTCDE,
-                 arguments={'greedy': False,
-                            'beam_width': 100,
-                            'top_paths': 1},
-                 dtype="float32")(
-            [y_trans] + [layer_inlen.output])
-
-        ctc_model = Model(inputs=[input_tran] + [layer_inlen.input],
-                      outputs=out_decoded_dense, name="ctc_model")
-
-        ctc_model_json = model_json.replace(".json","_encoder.json")
-        ctc_model_h5 = model_h5.replace(".h5","_encoder.h5")
-        with open(ctc_model_json, "w") as json_file:
-          json_file.write(ctc_model.to_json())
-        ctc_model.save_weights(ctc_model_h5)
-        ctc_model.summary()
-
-        logger.info("A json file of an encoder was save to %s", ctc_model_json)
-        logger.info("An h5 file of an encoder was save to %s", ctc_model_h5)
 
   def beam_search(self, feature_seq, beam_size=10): # pylint: disable=too-many-branches
     """
@@ -255,7 +212,7 @@ def main():
   std = audio_gen.feats_std
 
   # Decoding
-  krd = KerasRNNTDecoder(logger, vocab, config)
+  krd = KerasRNNTDecoder(vocab, config)
   # A wav path is hardcoded.
   speech_path = "samples/data/timit_sample/LDC93S1.wav"
   feature_seq = (audio_gen.featurize(speech_path)- mean) / std
