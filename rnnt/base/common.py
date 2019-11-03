@@ -183,7 +183,8 @@ class ParseOption(object):
   def sanity_check(self, args):
     # Checking sanity of configuration options
     if not args.paths_data_path:
-      self.logger.critical("the following arguments are required: --paths-data-path")
+      self.logger.critical("the following arguments are required:"
+                           " --paths-data-path")
       return False
 
     if not os.path.isdir(args.paths_data_path)\
@@ -221,15 +222,19 @@ class ParseOption(object):
     prep_group = parser.add_argument_group(title="pre-processing",
                                            description="options related to "
                                                        "text pre-processing")
-    prep_group.add_argument('--prep-use-unk', default=False, type=ParseOption.str2bool,
+    prep_group.add_argument('--prep-use-unk', default=False,
+                            type=ParseOption.str2bool,
                             help="a unk (unknown symbol) is used or not.")
-    prep_group.add_argument('--prep-use-bos', default=False, type=ParseOption.str2bool,
+    prep_group.add_argument('--prep-use-bos', default=False,
+                            type=ParseOption.str2bool,
                             help="Whether a bos (beginning of sentence) "
                                  "symbol is used or not.")
-    prep_group.add_argument('--prep-use-eos', default=False, type=ParseOption.str2bool,
+    prep_group.add_argument('--prep-use-eos', default=False,
+                            type=ParseOption.str2bool,
                             help="Whether a eos (end of sentence) symbol is "
                                  "used or not.")
-    prep_group.add_argument('--prep-use-beos', default=False, type=ParseOption.str2bool,
+    prep_group.add_argument('--prep-use-beos', default=False,
+                            type=ParseOption.str2bool,
                             help="Whether symbols for bos and eos are used "
                                  "as one symbol.")
     prep_group.add_argument('--prep-max-string-length', type=int, default=-1,
@@ -299,7 +304,8 @@ class ParseOption(object):
     path_group.add_argument("--paths-data-path", help="base path")
     path_group.add_argument("--paths-vocab",
                             help="vocab file")
-    path_group.add_argument('--paths-clean-up', type=ParseOption.str2bool, default=False,
+    path_group.add_argument('--paths-clean-up', type=ParseOption.str2bool,
+                            default=False,
                             help="cleaning up previous models and graphs")
     path_group.add_argument('--paths-model-json', default=None,
                             help="model json")
@@ -311,6 +317,10 @@ class ParseOption(object):
                             help="valid corpus")
     path_group.add_argument('--paths-test-corpus', default="test_corpus.json",
                             help="test corpus")
+    path_group.add_argument('--paths-cmvn-mean', default=None,
+                            help="a path of a mean file for cmvn")
+    path_group.add_argument('--paths-cmvn-std', default=None,
+                            help="a path of a standard deviation file for cmvn")
 
     # Feature
     feature_group = parser.add_argument_group(title="feature",
@@ -355,10 +365,25 @@ class ParseOption(object):
 
     # Inference option
     inference_group = parser.add_argument_group()
-    inference_group.add_argument("--inference-is-debug", type=ParseOption.str2bool, default="False",
-                                 help="true means storing softmax sequences to check")
+    inference_group.add_argument("--inference-is-debug",
+                                 type=ParseOption.str2bool,
+                                 default="False",
+                                 help="true means storing softmax sequences to "
+                                      "check")
     inference_group.add_argument("--inference-beam-width", type=int, default=12,
                                  help="beam width for beam search decoding")
+    inference_group.add_argument("--inference-save-encoder",
+                                 type=ParseOption.str2bool,
+                                 default="False",
+                                 help="Whether to save encoder layers or not."
+                                      "This is working only for the "
+                                      "rnnt_decoder module")
+    inference_group.add_argument("--inference-is-encoder",
+                                 type=ParseOption.str2bool,
+                                 default="False",
+                                 help="Whether to load encoder layers or not."
+                                      "This is working only for the "
+                                      "ctc_decoder module")
 
     # Device
     device_group = parser.add_argument_group(title="device")

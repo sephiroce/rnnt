@@ -57,16 +57,21 @@ def main():
 
   model = model_from_json(loaded_model_json)
 
+  if config.inference_is_encoder:
+    name_of_lastlayer = "encoder_softmax"
+  else:
+    name_of_lastlayer = Constants.OUTPUT_TRANS
+
   # Adding a decoder layer to the loaded Keras graph
-  out_decoded_dense = Lambda(KerasCTCDecoder.ctc_complete_decoding_lambda_func,
-                             output_shape=(None, None),
-                             name=Constants.KEY_CTCDE,
-                             arguments={'greedy': False,
-                                        'beam_width': config.inference_beam_width,
-                                        'top_paths': 1},
-                             dtype="float32") \
-    ([model.get_layer(Constants.OUTPUT_TRANS).output] +
-     [model.get_layer(Constants.INPUT_INLEN).output])
+  out_decoded_dense = \
+    Lambda(KerasCTCDecoder.ctc_complete_decoding_lambda_func,
+           output_shape=(None, None),
+           name=Constants.KEY_CTCDE,
+           arguments={'greedy': False,
+                      'beam_width': config.inference_beam_width,
+                      'top_paths': 1},
+           dtype="float32")([model.get_layer(name_of_lastlayer).output] +
+                            [model.get_layer(Constants.INPUT_INLEN).output])
 
   model = Model(inputs=[model.get_layer(Constants.INPUT_TRANS).input] +
                 [model.get_layer(Constants.INPUT_INLEN).input],
@@ -81,20 +86,21 @@ def main():
 
   # For computing mean and variance for CMVN
   audio_gen.load_train_data(Util.get_file_path(config.paths_data_path,
-                                               config.paths_train_corpus), 1000)
+                                               config.paths_train_corpus),
+                            config.prep_cmvn_samples)
   # Testing data
   audio_gen.load_test_data(Util.get_file_path(config.paths_data_path,
                                               config.paths_test_corpus))
 
   if config.inference_is_debug:
     new_model = Model(inputs=model.input,
-                      outputs=model.get_layer(Constants.OUTPUT_TRANS).output)
+                      outputs=model.get_layer(name_of_lastlayer).output)
     for i, val in enumerate(audio_gen.next_test()):
       if i == 0:
         print(val[0])
         result = new_model.predict(val[0])
         np.savetxt(model_weight_path + "_%i.csv"%i, result[0], delimiter=",")
-        print(model_weight_path + "_%d.csv" % i)
+        logger.info("Please find a csv file at %s_%d.csv", model_weight_path, i)
         break
   else:
     with open(model_weight_path+".utt", "w") as utt_file:

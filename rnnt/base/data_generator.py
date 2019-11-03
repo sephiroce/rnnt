@@ -70,8 +70,10 @@ class AudioGenerator(object):
 
     self.max_freq = 16000
     self.feat_dim = config.feature_dimension
-    self.feats_mean = None
-    self.feats_std = None
+    self.feats_mean = np.loadtxt(config.paths_cmvn_mean) if \
+      config.paths_cmvn_mean else None
+    self.feats_std = np.loadtxt(config.paths_cmvn_std) if \
+      config.paths_cmvn_std else None
     self.rng = random.Random(RNG_SEED)
     self.cur_train_index = 0
     self.cur_valid_index = 0
@@ -158,7 +160,12 @@ class AudioGenerator(object):
 
   def load_train_data(self, desc_file='train_corpus.json', cmvn_samples=100):
     self.load_metadata_from_desc_file(desc_file, Constants.TRAINING)
-    self.fit_train(cmvn_samples)
+    if self.feats_mean is None or self.feats_std is None:
+      self.feats_mean, self.feats_std = self.fit_train(cmvn_samples)
+      np.savetxt(desc_file+".mean", self.feats_mean)
+      np.savetxt(desc_file+".std", self.feats_std)
+      self.logger.info("mean: %s", desc_file+".mean")
+      self.logger.info("std: %s", desc_file+".std")
 
   def load_validation_data(self, desc_file='valid_corpus.json'):
     self.load_metadata_from_desc_file(desc_file, Constants.VALIDATION)
@@ -208,24 +215,20 @@ class AudioGenerator(object):
   def fit_train(self, k_samples=100):
     """ Estimate the mean and std of the features from the training set
     Params:
-      k_samples (int): Use this number of samples for estimation
+      k_samples (int): the number of samples to compute mean and std over feats.
     """
-    # calculating CMVN if it was not pre-calculated.
-    if self.feats_mean is None or self.feats_std is None:
-      if k_samples == 0:
-        self.feats_mean = 0
-        self.feats_std = 1
-        return
-      elif k_samples > 0 or k_samples > len(self.train_audio_paths):
-        k_samples = min(k_samples, len(self.train_audio_paths))
-      else:
-        k_samples = len(self.train_audio_paths)
-      self.logger.info("CMVNs are being computed for %d utterances.", k_samples)
-      samples = self.rng.sample(self.train_audio_paths, k_samples)
-      feats = [self.featurize(s) for s in samples]
-      feats = np.vstack(feats)
-      self.feats_mean = np.mean(feats, axis=0)
-      self.feats_std = np.std(feats, axis=0)
+    assert k_samples != 0
+
+    if k_samples == -1:
+      k_samples = len(self.train_audio_paths)
+    else:
+      k_samples = min(k_samples, len(self.train_audio_paths))
+
+    self.logger.info("CMVNs are being computed for %d utterances.", k_samples)
+    samples = self.rng.sample(self.train_audio_paths, k_samples)
+    feats = [self.featurize(s) for s in samples]
+    feats = np.vstack(feats)
+    return np.mean(feats, axis=0), np.std(feats, axis=0)
 
   def mfcc_graves_2012(self, wav_path):
     """
@@ -318,7 +321,7 @@ class AudioGeneratorForRNNT(AudioGenerator):
       max_stri_len = max([len(texts[cur_index + i])
                           for i in range(0, batch_size)])
     else:
-      max_stri_len = max([len(texts[cur_index+i].split(" "))
+      max_stri_len = max([len(texts[cur_index + i].split(" "))
                           for i in range(0, batch_size)])
 
     # initialize the arrays
@@ -337,17 +340,22 @@ class AudioGeneratorForRNNT(AudioGenerator):
       input_length[i] = feat.shape[0] # T
       input_tran[i, :feat.shape[0], :] = feat # x
 
-      # Input for Prediction network and label for rnnt
-      int_seq = Util.get_int_seq(texts[cur_index + i],
-                                 self.is_char, self.vocab, 1)
-      label_rnnt[i, :len(int_seq)] = np.array(int_seq)
-      label_length[i] = len(int_seq)
+      """
+      Input for Predicition Network
+      The length U + 1 input sequence yˆ = (∅, y1, . . . , yU) to G output 
+      sequence y with ∅ prepended.
+      """
+      int_seq = Util.get_int_seq(texts[cur_index + i], self.is_char, self.vocab)
+      label_length[i] = len(int_seq) # U
+      label_rnnt[i, :len(int_seq)] = np.array(int_seq) # => U
+
+      # A blank symbol is prepended to the input of a prediction network
       for elem_idx, elem in enumerate(int_seq):
-        input_pred[i, elem_idx + 1, elem - 1] = 1
+        input_pred[i, elem_idx + 1, elem] = 1
 
     # return the arrays
     inputs = {Constants.INPUT_TRANS: input_tran,   # [B, T, F]
-              Constants.INPUT_PREDS: input_pred,   # [B, U + 1, V]: labels
+              Constants.INPUT_PREDS: input_pred,   # [B, U + 1, V]
               Constants.INPUT_INLEN: input_length, # [B] : T
               Constants.INPUT_LBLEN: label_length, # [B] : U
               Constants.INPUT_LABEL: label_rnnt    # [B, U]
