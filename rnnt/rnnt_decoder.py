@@ -13,14 +13,11 @@ import sys
 import numpy as np
 
 from keras.models import model_from_json, Model
-from keras.layers import Lambda, Activation
 from keras.optimizers import SGD
 
 from rnnt.base.util import Util
 from rnnt.base.common import Constants, Logger, ParseOption
 from rnnt.base.data_generator import AudioGeneratorForRNNT
-from rnnt.ctc_decoder import KerasCTCDecoder
-
 
 class Sequence(object):
   """
@@ -41,7 +38,6 @@ class KerasRNNTDecoder(object):
   def __init__(self, vocab, config):
     self.vocab_size = len(vocab)
     self.blank = self.vocab_size
-    self.vocab = vocab
 
     model_json = Util.get_file_path(config.paths_data_path,
                                     config.paths_model_json)
@@ -91,7 +87,7 @@ class KerasRNNTDecoder(object):
       # A: emitting non blank
       # B: Non-emitting? anyway blank!
       # LINE3: A = B
-      A = B # pylint: disable=invalid-name
+      A = copy.deepcopy(B) # pylint: disable=invalid-name
       # LINE4: B = {}
       B = [] # pylint: disable=invalid-name
 
@@ -132,7 +128,7 @@ class KerasRNNTDecoder(object):
           # sum
           for k_idx in range(idx, len(y.hyp) - 1):
             logp = Util.softmax(y.dist[k_idx] + encoder_output_t, is_log=True, axis=0)
-            curlogp += float(logp[y.hyp[k_idx + 1]].asscalar())
+            curlogp += float(logp[y.hyp[k_idx + 1]])
           y.logp = max(y.logp, curlogp) + math.log1p(math.exp(-math.fabs(y.logp - curlogp)))
       # LINE7: end for
 
@@ -142,11 +138,9 @@ class KerasRNNTDecoder(object):
         y_star = max(A, key=lambda a: a.logp)
 
         # B contains less than W elements more probable than the most probable in A
-        if B:
-          if len(B) < beam_size and max(B, key=lambda a: a.logp).logp >= y_star.logp:
-            pass
-          else:
-            break
+        if len(B) >= beam_size and \
+                max(B, key=lambda a: a.logp).logp >= y_star.logp:
+          break
 
         # LINE10: remove y* from A
         A.remove(y_star)
@@ -187,7 +181,7 @@ class KerasRNNTDecoder(object):
     # LINE18: Return: y with highest log Pr(y)/|y| in B
     # return highest probability sequence
     # B[0] <- sorted by logp!, but original algorithm use "Pr(y)/|y|"
-    return B[0].hyp, -B[0].logp
+    return B[0].hyp[1:], -B[0].logp
 
 def main():
   logger = Logger(name="KerasRNNTDecoder", level=Logger.DEBUG).logger
@@ -196,33 +190,44 @@ def main():
   config = ParseOption(sys.argv, logger).args
 
   # Loading vocabs
-  _, vocab = Util.load_vocab(Util.get_file_path(config.paths_data_path,
-                                                config.paths_vocab),
-                             config=config)
+  vocab, id_to_word = Util.load_vocab(Util.get_file_path(config.paths_data_path,
+                                                         config.paths_vocab),
+                                      config=config)
   logger.info("%d words were loaded", len(vocab))
   logger.info("The expanded vocab size : %d", len(vocab) + 1)
   logger.info("The index of a blank symbol: %d", len(vocab))
 
   # Computing mean and std for cmvn using a AudioGeneratorForRNNT class
   audio_gen = AudioGeneratorForRNNT(logger, config, vocab)
-  audio_gen.load_train_data(Util.get_file_path(config.paths_data_path,
-                                               "train_corpus.json"),
-                            config.prep_cmvn_samples)
-  mean = audio_gen.feats_mean
-  std = audio_gen.feats_std
-
-  # Decoding
-  krd = KerasRNNTDecoder(vocab, config)
-  # A wav path is hardcoded.
-  speech_path = "samples/data/timit_sample/LDC93S1.wav"
-  feature_seq = (audio_gen.featurize(speech_path)- mean) / std
-
-  hyp, logp = krd.beam_search(feature_seq, 4)
-
-  exp_vocab = copy.deepcopy(vocab)
+  if audio_gen.feats_mean is None or audio_gen.feats_std is None:
+    audio_gen.fit_train(config.prep_cmvn_samples)
+  audio_gen.load_test_data(Util.get_file_path(config.paths_data_path,
+                                              config.paths_test_corpus))
+  krd = KerasRNNTDecoder(id_to_word, config)
+  exp_vocab = copy.deepcopy(id_to_word)
   exp_vocab.append("BLANK")
-  print('Prediction: {}\tlog-likelihood {:.2f}\n'.
-        format(' '.join([exp_vocab[i] for i in hyp]), -logp))
+
+  if config.inference_is_debug:
+    # Decoding
+    # A wav path is hardcoded.
+    speech_path = "samples/data/timit_sample/LDC93S1.wav"
+    feature_seq = (audio_gen.featurize(speech_path) - audio_gen.feats_mean) /\
+                  audio_gen.feats_std
+    hyp, logp = krd.beam_search(feature_seq, config.inference_beam_width)
+    result = ' '.join([exp_vocab[i] for i in hyp])
+    logger.info("UTT: %s, %.2f", result, -logp)
+  else:
+    model_h5 = Util.get_file_path(config.paths_data_path, config.paths_model_h5)
+    with open(model_h5 + ".utt", "w") as utt_file:
+      for i, val in enumerate(audio_gen.next_test()):
+        if i == len(audio_gen.test_audio_paths):
+          break
+        hyp, logp = krd.beam_search(val[0][Constants.INPUT_TRANS][0],
+                                    config.inference_beam_width)
+        result = ' '.join([exp_vocab[i] for i in hyp])
+        logger.info("UTT%03d: %s, %.2f", i + 1, result, -logp)
+        utt_file.write("%s (spk-%d)\n"%(result, i + 1))
+      logger.info("A UTT file was saved into %s.utt", model_h5)
 
 if __name__ == "__main__":
   main()

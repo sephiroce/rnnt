@@ -260,11 +260,12 @@ class Util:
       for elem in value:
         e_x.append(Util.softmax(elem))
     else:
-      e_x = np.exp(value - np.max(value))
-      e_x = e_x / e_x.sum()
+      e_x = np.exp(value)
+      if is_log:
+        e_x = np.log(e_x) - np.log(e_x.sum())
+      else:
+        e_x = e_x / e_x.sum()
 
-    if is_log:
-      return np.log(e_x)
     return e_x
 
   @staticmethod
