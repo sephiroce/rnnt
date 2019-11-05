@@ -79,25 +79,15 @@ class Util:
 
     import keras.backend as K
 
-    batch_size = K.shape(y_trans)[0]
-    time_index = K.shape(y_trans)[1] # B, T, H_en*2
-    label_sequence_length = K.shape(y_pred)[1] # B, U, H_de
-
     # B, T, U, H_en * 2 (bi-directional)
-    y_trans = K.reshape(K.tile(y_trans, [1, label_sequence_length, 1]),
-                        [batch_size,
-                         time_index,
-                         label_sequence_length,
-                         K.shape(y_trans)[2]])
+    ex_y_trans = K.expand_dims(y_trans, axis=2) # BT1H
+    ex_y_trans = K.tile(ex_y_trans, [1, 1, K.shape(y_pred)[1], 1])
 
     # B, T, U, H_de
-    y_pred = K.reshape(K.tile(y_pred, [1, time_index, 1]),
-                       [batch_size,
-                        time_index,
-                        label_sequence_length,
-                        K.shape(y_pred)[2]])
+    ex_y_pred = K.expand_dims(y_pred, axis=1) # B1UH
+    ex_y_pred = K.tile(ex_y_pred, [1, K.shape(y_trans)[1], 1, 1])
 
-    return K.concatenate([y_trans, y_pred])
+    return K.concatenate([ex_y_trans, ex_y_pred])
 
   @staticmethod
   def rnnt_lambda_func(args):
