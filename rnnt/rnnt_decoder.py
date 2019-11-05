@@ -147,7 +147,8 @@ class KerasRNNTDecoder(object):
 
         # LINE11: Pr(y_star)Pr({blank, vocabs}|y,t)
         # calculate P(k|y_hat, t) for all k including a blank symbol
-        #pred, hidden = self.forward_step(y_star.hyp[-1], y_star.h) # get last label and hidden state
+        # pred, hidden = self.forward_step(y_star.hyp[-1], y_star.h)
+        # in order to get last label and hidden state
         cur_seq = np.array([Util.one_hot(y_star.hyp, self.vocab_size)])
         pred = np.squeeze(self.decoder.predict(cur_seq)[:, -1, :])
         logp = Util.softmax(pred + encoder_output_t, is_log=True)

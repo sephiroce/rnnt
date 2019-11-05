@@ -291,6 +291,22 @@ class AudioGeneratorForRNNT(AudioGenerator):
 
   def get_batch(self, partition):
     """ Obtain a batch of train, validation, or test data
+
+      Input for Predicition Network
+      The length U + 1 input sequence yˆ = (∅, y1, . . . , yU) to G output
+      sequence y with ∅ prepended.
+
+      Label is not prepended. only input sequence.
+
+      Prediction networks lean
+      ∅ -> y1
+      y1 -> y2
+      ...
+
+      In this set-up, the last token in the input will be ignored.
+
+      :param partition: the type of this batch
+      :return: input data for rnnt
     """
     if partition == Constants.TRAINING:
       audio_paths = self.train_audio_paths
@@ -340,19 +356,7 @@ class AudioGeneratorForRNNT(AudioGenerator):
       input_length[i] = feat.shape[0] # T
       input_tran[i, :feat.shape[0], :] = feat # x
 
-      """
-      Input for Predicition Network
-      The length U + 1 input sequence yˆ = (∅, y1, . . . , yU) to G output 
-      sequence y with ∅ prepended.
-      
-      Label is not prepended. only input sequence.
-      
-      Prediction networks lean
-      ∅ -> y1
-      y1 -> y2
-      ...
-      In this set-up, the last token in the input will be ignored.
-      """
+
       int_seq = Util.get_int_seq(texts[cur_index + i], self.is_char, self.vocab)
       label_length[i] = len(int_seq) # U
       label_rnnt[i, :len(int_seq)] = np.array(int_seq) # => U

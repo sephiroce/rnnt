@@ -14,20 +14,24 @@ import time
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 
-from rnnt.base.common import Constants, Logger, ParseOption
+from rnnt.base.common import Constants, Logger, ParseOption, ModelType
 from rnnt.base.util import Util
 from rnnt.base.data_generator import AudioGeneratorForRNNT, AudioGeneratorForCTC
 from rnnt.keras_model import KerasModel
 
-def main():  # pylint: disable=too-many-locals
+def main():  # pylint: disable=too-many-locals, too-many-statements
   current_milli_time = int(round(time.time() * 1000))
   logger = Logger(name="KerasSeq2SeqASR", level=Logger.DEBUG).logger
 
   # Get configurations
   config = ParseOption(sys.argv, logger).args
 
-  if not config.decoder_layer_size or not config.decoder_number_of_layer:
-    model_type = "CTC"
+  assert config.encoder_layer_size > 0 and config.encoder_number_of_layer > 0
+
+  # decoder == None and joint == None
+  if config.decoder_layer_size == 0 or config.decoder_number_of_layer == 0:
+    assert config.joint_layer_size == 0 and config.joint_number_of_layer == 0
+    model_type = ModelType.CTC
     model_name = \
       "%s_%d_%s%d_%s%dx%d_lr%.6f_%dgpus" % (model_type,
                                             current_milli_time,
@@ -38,8 +42,9 @@ def main():  # pylint: disable=too-many-locals
                                             config.encoder_layer_size,
                                             config.train_learning_rate,
                                             config.device_number_of_gpu)
-  else:
-    model_type = "RNNT"
+  # decoder == NotNone and Joint == None
+  elif config.joint_layer_size == 0 or config.joint_number_of_layer == 0:
+    model_type = ModelType.RNNT
     model_name = \
       "%s_%d_%s%d_%s%dx%d.%dx%d_lr%.6f_%dgpus" % (model_type,
                                                   current_milli_time,
@@ -52,6 +57,24 @@ def main():  # pylint: disable=too-many-locals
                                                   config.decoder_layer_size,
                                                   config.train_learning_rate,
                                                   config.device_number_of_gpu)
+  # decoder == NotNone and Joint == NotNone
+  else:
+    model_type = ModelType.RNNT_FF
+    model_name = \
+      "%s_%d_%s%d_%s%dx%d.%dx%d.%dx%d_lr%.6f_%dgpus" %\
+                                                (model_type,
+                                                 current_milli_time,
+                                                 config.feature_type,
+                                                 config.feature_dimension,
+                                                 config.encoder_rnn_direction,
+                                                 config.encoder_number_of_layer,
+                                                 config.encoder_layer_size,
+                                                 config.decoder_number_of_layer,
+                                                 config.decoder_layer_size,
+                                                 config.joint_number_of_layer,
+                                                 config.joint_layer_size,
+                                                 config.train_learning_rate,
+                                                 config.device_number_of_gpu)
 
   # paths
   checkpoint_dir = config.paths_data_path + "/checkpoints/"
@@ -80,7 +103,7 @@ def main():  # pylint: disable=too-many-locals
 
   # Creating a model
   model = KerasModel.create_model(config=config, vocab=vocab,
-                                  is_rnnt=model_type == "RNNT")
+                                  model_type=model_type)
 
   # Logging information
   logger.info("Model name: %s", model_name)
@@ -99,7 +122,7 @@ def main():  # pylint: disable=too-many-locals
     logger.info("Saved a meta file of a training model to %s", model_json)
 
   # create a class instance for obtaining batches of data
-  if model_type == "RNNT":
+  if model_type == ModelType.RNNT or model_type == ModelType.RNNT_FF:
     audio_gen = AudioGeneratorForRNNT(logger, config, vocab)
   else:
     audio_gen = AudioGeneratorForCTC(logger, config, vocab)

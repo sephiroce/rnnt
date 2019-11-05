@@ -50,6 +50,56 @@ class Util:
       else data_path + "/" + file_path
 
   @staticmethod
+  def rnnt_lambda_func_v2(args):
+    acts, labels, input_length, label_length = args
+    import keras.backend as K
+    import tensorflow as tf
+
+    batch_size = K.shape(acts)[0]
+
+    # the 2 is critical here since the first couple outputs of the RNN tend to
+    # be garbage:
+    shift = 2
+    acts = acts[:, shift:, :, :] # B T U V
+    input_length -= shift
+
+    acts = tf.nn.log_softmax(acts)
+    input_length = K.reshape(input_length, [batch_size])
+    label_length = K.reshape(label_length, [batch_size])
+
+    from warprnnt_tensorflow import rnnt_loss
+    list_value = rnnt_loss(acts, labels, input_length, label_length,
+                           blank_label=39)
+
+    return K.reshape(list_value, [batch_size])
+
+  @staticmethod
+  def concatenate_lambda(args):
+    y_trans, y_pred = args
+
+    import keras.backend as K
+
+    batch_size = K.shape(y_trans)[0]
+    time_index = K.shape(y_trans)[1] # B, T, H_en*2
+    label_sequence_length = K.shape(y_pred)[1] # B, U, H_de
+
+    # B, T, U, H_en * 2 (bi-directional)
+    y_trans = K.reshape(K.tile(y_trans, [1, label_sequence_length, 1]),
+                        [batch_size,
+                         time_index,
+                         label_sequence_length,
+                         K.shape(y_trans)[2]])
+
+    # B, T, U, H_de
+    y_pred = K.reshape(K.tile(y_pred, [1, time_index, 1]),
+                       [batch_size,
+                        time_index,
+                        label_sequence_length,
+                        K.shape(y_pred)[2]])
+
+    return K.concatenate([y_trans, y_pred])
+
+  @staticmethod
   def rnnt_lambda_func(args):
     y_trans, y_pred, labels, input_length, label_length = args
     import keras.backend as K
@@ -74,7 +124,7 @@ class Util:
     list_value = rnnt_loss(acts, labels, input_length, label_length,
                            blank_label=39)
 
-    return tf.reshape(list_value, [batch_size])
+    return K.reshape(list_value, [batch_size])
 
   @staticmethod
   def get_result_str(utt, id_to_word, is_char=False):

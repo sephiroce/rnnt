@@ -7,6 +7,7 @@
 __author__ = "Kyungmin Lee"
 __email__ = "sephiroce@snu.ac.kr"
 
+from enum import Enum
 import logging
 import os
 import sys
@@ -47,11 +48,17 @@ class Constants(object): # pylint: disable=no-init
   FEAT_MFCC = 'mfcc'
   FEAT_FBANK = 'fbank'
 
-class CmvnFiles(object): # pylint: disable=no-init
-  mean = "cmvn.mean"
-  std = "cmvn.std"
+class ModelType(Enum):
+  CTC = "CTC"
+  RNNT = "RNNT"
+  RNNT_FF = "RNNT_FF"
 
-class ExitCode(object): # pylint: disable=no-init
+class OutputType(Enum):
+  SOFTMAX = 0
+  LOGIT = 1
+  HIDDEN = 2
+
+class ExitCode(Enum):
   NO_DATA = 0
   NOT_SUPPORTED = 1
   INVALID_OPTION = 11
@@ -60,6 +67,7 @@ class ExitCode(object): # pylint: disable=no-init
   INVALID_NAME_OF_CONFIGURATION_FILE = 14
   INVALID_FILE_PATH = 15
   INVALID_DICTIONARY = 16
+  INVALID_CONDITION = 17
 
 class Logger(object):
   """
@@ -334,9 +342,9 @@ class ParseOption(object):
     encoder_group = parser.add_argument_group(title="encoder architecture",
                                               description="hyper-parameter "
                                                           "for each layers")
-    encoder_group.add_argument("--encoder-layer-size", type=int,
+    encoder_group.add_argument("--encoder-layer-size", type=int, default=0,
                                help="size of a hidden layer")
-    encoder_group.add_argument("--encoder-number-of-layer", type=int,
+    encoder_group.add_argument("--encoder-number-of-layer", type=int, default=0,
                                help="number of hidden layers")
     encoder_group.add_argument("--encoder-rnn-direction", default="bi",
                                help="uni or bi")
@@ -347,12 +355,23 @@ class ParseOption(object):
     decoder_group = parser.add_argument_group(title="decoder architecture",
                                               description="hyper-parameter for "
                                                           "each layers")
-    decoder_group.add_argument("--decoder-layer-size", type=int,
+    decoder_group.add_argument("--decoder-layer-size", type=int, default=0,
                                help="size of a hidden layer")
-    decoder_group.add_argument("--decoder-number-of-layer", type=int,
+    decoder_group.add_argument("--decoder-number-of-layer", type=int, default=0,
                                help="number of hidden layers")
     encoder_group.add_argument("--decoder-dropout", type=float, default=0.0,
                                help="drop out, default = 0 to keep all")
+
+    # Joint n/w architecture
+    joint_group = parser.add_argument_group(title="decoder architecture",
+                                            description="hyper-parameter for "
+                                                        "each layers")
+    joint_group.add_argument("--joint-layer-size", type=int, default=0,
+                             help="size of a hidden layer")
+    joint_group.add_argument("--joint-number-of-layer", type=int, default=0,
+                             help="number of hidden layers")
+    joint_group.add_argument("--joint-dropout", type=float, default=0.0,
+                             help="drop out, default = 0 to keep all")
 
     # Setting for the entire model
     model_group = parser.add_argument_group(title="model architecture",
