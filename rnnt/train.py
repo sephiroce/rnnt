@@ -14,7 +14,7 @@ import time
 
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 
-from rnnt.base.common import Constants, Logger, ParseOption, ModelType
+from rnnt.base.common import Constants, Logger, ParseOption
 from rnnt.base.util import Util
 from rnnt.base.data_generator import AudioGeneratorForRNNT, AudioGeneratorForCTC
 from rnnt.keras_model import KerasModel
@@ -31,7 +31,7 @@ def main():  # pylint: disable=too-many-locals, too-many-statements
   # decoder == None and joint == None
   if config.decoder_layer_size == 0 or config.decoder_number_of_layer == 0:
     assert config.joint_layer_size == 0 and config.joint_number_of_layer == 0
-    model_type = ModelType.CTC
+    model_type = Constants.CTC
     model_name = \
       "%s_%d_%s%d_%s%dx%d_lr%.6f_%dgpus" % (model_type,
                                             current_milli_time,
@@ -44,7 +44,7 @@ def main():  # pylint: disable=too-many-locals, too-many-statements
                                             config.device_number_of_gpu)
   # decoder == NotNone and Joint == None
   elif config.joint_layer_size == 0 or config.joint_number_of_layer == 0:
-    model_type = ModelType.RNNT
+    model_type = Constants.RNNT
     model_name = \
       "%s_%d_%s%d_%s%dx%d.%dx%d_lr%.6f_%dgpus" % (model_type,
                                                   current_milli_time,
@@ -59,7 +59,7 @@ def main():  # pylint: disable=too-many-locals, too-many-statements
                                                   config.device_number_of_gpu)
   # decoder == NotNone and Joint == NotNone
   else:
-    model_type = ModelType.RNNT_FF
+    model_type = Constants.RNNT_FF
     model_name = \
       "%s_%d_%s%d_%s%dx%d.%dx%d.%dx%d_lr%.6f_%dgpus" %\
                                                 (model_type,
@@ -122,7 +122,7 @@ def main():  # pylint: disable=too-many-locals, too-many-statements
     logger.info("Saved a meta file of a training model to %s", model_json)
 
   # create a class instance for obtaining batches of data
-  if model_type == ModelType.RNNT or model_type == ModelType.RNNT_FF:
+  if model_type == Constants.RNNT or model_type == Constants.RNNT_FF:
     audio_gen = AudioGeneratorForRNNT(logger, config, vocab)
   else:
     audio_gen = AudioGeneratorForCTC(logger, config, vocab)

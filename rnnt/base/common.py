@@ -48,7 +48,6 @@ class Constants(object): # pylint: disable=no-init
   FEAT_MFCC = 'mfcc'
   FEAT_FBANK = 'fbank'
 
-class ModelType(Enum):
   CTC = "CTC"
   RNNT = "RNNT"
   RNNT_FF = "RNNT_FF"

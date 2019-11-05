@@ -16,7 +16,7 @@ from keras.layers import CuDNNLSTM as LSTM
 from keras.models import Model
 from keras.optimizers import SGD
 
-from rnnt.base.common import Constants, ExitCode, ModelType, OutputType
+from rnnt.base.common import Constants, ExitCode, OutputType
 from rnnt.base.util import Util
 
 class KerasModel(object):
@@ -105,11 +105,11 @@ class KerasModel(object):
     label = Input(name=Constants.INPUT_LABEL, shape=[None], dtype='int32')
 
     # CTC model: Bidirectional LSTM
-    if model_type == ModelType.CTC:
+    if model_type == Constants.CTC:
       output_type = OutputType.SOFTMAX
-    elif model_type == ModelType.RNNT:
+    elif model_type == Constants.RNNT:
       output_type = OutputType.LOGIT
-    elif model_type == ModelType.RNNT_FF:
+    elif model_type == Constants.RNNT_FF:
       output_type = OutputType.HIDDEN
     else:
       raise ExitCode.INVALID_OPTION
@@ -125,7 +125,7 @@ class KerasModel(object):
                                  config.model_init_scale,
                                  output_type=output_type)
 
-    is_rnnt = model_type == ModelType.RNNT or model_type == ModelType.RNNT_FF
+    is_rnnt = model_type == Constants.RNNT or model_type == Constants.RNNT_FF
     if is_rnnt:
       input_pred = Input(name=Constants.INPUT_PREDS, shape=[None, len(vocab)])
 
@@ -140,11 +140,11 @@ class KerasModel(object):
                                    config.model_init_scale,
                                    output_type=output_type)
 
-      if model_type == ModelType.RNNT:
+      if model_type == Constants.RNNT:
         loss_out = Lambda(Util.rnnt_lambda_func, output_shape=(1,),
                           name=Constants.LOSS_RNNT) \
           ([encoder.output, decoder.output, label, input_length, label_length])
-      elif model_type == ModelType.RNNT_FF:
+      elif model_type == Constants.RNNT_FF:
         # Joint encoder and decoder
         joint_pred = Lambda(Util.concatenate_lambda,
                             output_shape=[None, None, config.encoder_layer_size \
