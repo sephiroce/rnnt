@@ -300,7 +300,7 @@ class Util:
       for elem in value:
         e_x.append(Util.softmax(elem))
     else:
-      e_x = np.exp(value)
+      e_x = np.exp(value - np.max(value))
       if is_log:
         e_x = np.log(e_x) - np.log(e_x.sum())
       else:
