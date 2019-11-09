@@ -16,7 +16,7 @@ from keras.layers import CuDNNLSTM as LSTM
 from keras.models import Model
 from keras.optimizers import SGD
 
-from rnnt.base.common import Constants, ExitCode, OutputType
+from rnnt.base.common import Constants, ExitCode, ModelType, OutputType
 from rnnt.base.util import Util
 
 class KerasModel(object):
@@ -26,7 +26,7 @@ class KerasModel(object):
               init_range=0.1, output_type=OutputType.LOGIT):
     prev_layer = None
 
-    for _ in range(num_layers):
+    for layer_i in range(num_layers):
       if prev_layer is None:
         prev_layer = input_vector
 
@@ -43,10 +43,16 @@ class KerasModel(object):
                                         maxval=init_range),
                         recurrent_initializer=\
                           RandomUniform(minval=-init_range,
-                                        maxval=init_range))
+                                        maxval=init_range),
+                        name=output_layer_name \
+                        if not is_bidirectional and layer_i == num_layers-1
+                        and output_type == OutputType.HIDDEN else None)
 
       if is_bidirectional:
-        prev_layer = Bidirectional(lstm_layer, merge_mode='concat')(prev_layer)
+        prev_layer = Bidirectional(lstm_layer, merge_mode='concat',
+                                   name=output_layer_name if layer_i == \
+                                   num_layers-1 and output_type == \
+                                   OutputType.HIDDEN else None)(prev_layer)
       else:
         prev_layer = lstm_layer(prev_layer)
 
@@ -75,7 +81,7 @@ class KerasModel(object):
 
   @staticmethod
   def get_fc(input_vector, output_dim, num_hidden, num_layers, dropout,
-             init_range):
+             output_layer_name=None, init_range=0.1):
     assert num_layers > 0 and num_hidden > 0 and output_dim > 0
     prev_layer = None
     for layer_i in range(num_layers):
@@ -89,10 +95,26 @@ class KerasModel(object):
                                               maxval=init_range),
                               kernel_initializer=\
                                 RandomUniform(minval=-init_range,
-                                              maxval=init_range)))\
+                                              maxval=init_range)),
+                        name=output_layer_name if layer_i == num_layers - 1
+                        else None)\
         (input_vector if prev_layer is None else prev_layer)
       if dropout > 0:
         prev_layer = Dropout(rate=dropout)(prev_layer)
+    return prev_layer
+
+  @staticmethod
+  def get_fc_decode(input_vector, output_dim, num_hidden, num_layers):
+    assert num_layers > 0 and num_hidden > 0 and output_dim > 0
+    prev_layer = None
+
+    for layer_i in range(num_layers):
+      prev_layer = \
+        Dense(output_dim if layer_i == num_layers - 1 else
+              num_hidden, activation="linear" if layer_i == num_layers - 1
+              else "tanh")\
+        (input_vector if prev_layer is None else prev_layer)
+
     return prev_layer
 
   @staticmethod
@@ -105,11 +127,11 @@ class KerasModel(object):
     label = Input(name=Constants.INPUT_LABEL, shape=[None], dtype='int32')
 
     # CTC model: Bidirectional LSTM
-    if model_type == Constants.CTC:
+    if model_type == ModelType.CTC:
       output_type = OutputType.SOFTMAX
-    elif model_type == Constants.RNNT:
+    elif model_type == ModelType.RNNT:
       output_type = OutputType.LOGIT
-    elif model_type == Constants.RNNT_FF:
+    elif model_type == ModelType.RNNT_FF:
       output_type = OutputType.HIDDEN
     else:
       raise ExitCode.INVALID_OPTION
@@ -125,7 +147,7 @@ class KerasModel(object):
                                  config.model_init_scale,
                                  output_type=output_type)
 
-    is_rnnt = model_type == Constants.RNNT or model_type == Constants.RNNT_FF
+    is_rnnt = model_type == ModelType.RNNT or model_type == ModelType.RNNT_FF
     if is_rnnt:
       input_pred = Input(name=Constants.INPUT_PREDS, shape=[None, len(vocab)])
 
@@ -140,16 +162,17 @@ class KerasModel(object):
                                    config.model_init_scale,
                                    output_type=output_type)
 
-      if model_type == Constants.RNNT:
+      if model_type == ModelType.RNNT:
         loss_out = Lambda(Util.rnnt_lambda_func, output_shape=(1,),
                           name=Constants.LOSS_RNNT) \
           ([encoder.output, decoder.output, label, input_length, label_length])
-      elif model_type == Constants.RNNT_FF:
+      elif model_type == ModelType.RNNT_FF:
         # Joint encoder and decoder
         joint_pred = Lambda(Util.concatenate_lambda,
-                            output_shape=[None, None, config.encoder_layer_size \
-                                          * 2 + config.decoder_layer_size],
-                            name="joint")([encoder.output, decoder.output])
+                            output_shape=[None, None,
+                                          config.encoder_layer_size * 2 + \
+                                          config.decoder_layer_size])\
+          ([encoder.output, decoder.output])
 
         # Fully Connected network
         acts = KerasModel.get_fc(joint_pred,
@@ -157,10 +180,10 @@ class KerasModel(object):
                                  config.joint_layer_size,
                                  config.joint_number_of_layer,
                                  config.joint_dropout,
-                                 config.model_init_scale)
+                                 output_layer_name=Constants.OUTPUT_JOINT,
+                                 init_range=config.model_init_scale)
 
-        loss_out = Lambda(Util.rnnt_lambda_func_v2,
-                          output_shape=(1,),
+        loss_out = Lambda(Util.rnnt_lambda_func_v2, output_shape=(1,),
                           name=Constants.LOSS_RNNT) \
           ([acts, label, input_length, label_length])
       else:

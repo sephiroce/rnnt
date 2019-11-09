@@ -90,7 +90,6 @@ def main():
     out_decoded_dense = \
       Lambda(KerasCTCDecoder.ctc_complete_decoding_lambda_func,
              output_shape=(None, None),
-             name=Constants.KEY_CTCDE,
              arguments={'greedy': False,
                         'beam_width': config.inference_beam_width,
                         'top_paths': 1},

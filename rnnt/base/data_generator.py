@@ -16,9 +16,9 @@ import sys
 import numpy as np
 
 import scipy.io.wavfile as wav
-from python_speech_features import mfcc
+from python_speech_features import mfcc, fbank
 from python_speech_features.base import delta
-from rnnt.base.common import Constants
+from rnnt.base.common import Constants, ProcessType
 from rnnt.base.util import Util
 
 __author__ = "Kyungmin Lee"
@@ -70,10 +70,12 @@ class AudioGenerator(object):
 
     self.max_freq = 16000
     self.feat_dim = config.feature_dimension
-    self.feats_mean = np.loadtxt(config.paths_cmvn_mean) if \
-      config.paths_cmvn_mean else None
-    self.feats_std = np.loadtxt(config.paths_cmvn_std) if \
-      config.paths_cmvn_std else None
+    self.feats_mean = \
+      np.loadtxt(Util.get_file_path(self.basepath, config.paths_cmvn_mean)) \
+      if config.paths_cmvn_mean else None
+    self.feats_std = \
+      np.loadtxt(Util.get_file_path(self.basepath, config.paths_cmvn_std)) \
+      if config.paths_cmvn_std else None
     self.rng = random.Random(RNG_SEED)
     self.cur_train_index = 0
     self.cur_valid_index = 0
@@ -84,25 +86,25 @@ class AudioGenerator(object):
     self.is_char = config.prep_text_unit == Constants.CHAR
     self.feat_type = config.feature_type
 
-    self.train_audio_paths = Constants.EMPTY
+    self.train_audio_paths = None
     self.train_durations = 0
-    self.train_texts = Constants.EMPTY
+    self.train_texts = None
 
-    self.valid_audio_paths = Constants.EMPTY
+    self.valid_audio_paths = None
     self.valid_durations = 0
-    self.valid_texts = Constants.EMPTY
+    self.valid_texts = None
 
-    self.test_audio_paths = Constants.EMPTY
+    self.test_audio_paths = None
     self.test_durations = 0
-    self.test_texts = Constants.EMPTY
+    self.test_texts = None
 
   def shuffle_data_by_partition(self, partition):
     """ Shuffle the training or validation data
     """
-    if partition == Constants.TRAINING:
+    if partition == ProcessType.TRAINING:
       self.train_audio_paths, self.train_durations, self.train_texts = shuffle_data(
           self.train_audio_paths, self.train_durations, self.train_texts)
-    elif partition == Constants.VALIDATION:
+    elif partition == ProcessType.VALIDATION:
       self.valid_audio_paths, self.valid_durations, self.valid_texts = shuffle_data(
           self.valid_audio_paths, self.valid_durations, self.valid_texts)
     else:
@@ -111,17 +113,17 @@ class AudioGenerator(object):
   def sort_data_by_duration(self, partition):
     """ Sort the training or validation sets by (increasing) duration
     """
-    if partition == Constants.TRAINING:
+    if partition == ProcessType.TRAINING:
       self.train_audio_paths, self.train_durations, self.train_texts = \
           sort_data(self.train_audio_paths, self.train_durations,
                     self.train_texts)
-    elif partition == Constants.VALIDATION:
+    elif partition == ProcessType.VALIDATION:
       self.valid_audio_paths, self.valid_durations, self.valid_texts = \
           sort_data(self.valid_audio_paths, self.valid_durations,
                     self.valid_texts)
     else:
       raise Exception("Invalid partition. Must be %s/%s" %
-                      (Constants.TRAINING, Constants.VALIDATION))
+                      (ProcessType.TRAINING, ProcessType.VALIDATION))
 
   def get_batch(self, partition):
     raise NotImplementedError()
@@ -130,48 +132,52 @@ class AudioGenerator(object):
     """ Obtain a batch of training data
     """
     while True:
-      ret = self.get_batch(Constants.TRAINING)
+      ret = self.get_batch(ProcessType.TRAINING)
       self.cur_train_index += self.minibatch_size
       if self.cur_train_index > len(self.train_texts) - self.minibatch_size:
         self.cur_train_index = 0
-        self.shuffle_data_by_partition(Constants.TRAINING)
+        self.shuffle_data_by_partition(ProcessType.TRAINING)
       yield ret
 
   def next_valid(self):
     """ Obtain a batch of validation data
     """
     while True:
-      ret = self.get_batch(Constants.VALIDATION)
+      ret = self.get_batch(ProcessType.VALIDATION)
       self.cur_valid_index += self.minibatch_size
       if self.cur_valid_index > len(self.valid_texts) - self.minibatch_size:
         self.cur_valid_index = 0
-        self.shuffle_data_by_partition(Constants.VALIDATION)
+        self.shuffle_data_by_partition(ProcessType.VALIDATION)
       yield ret
 
   def next_test(self):
     """ Obtain a batch of test data
     """
     while True:
-      ret = self.get_batch(Constants.EVALUATION)
+      ret = self.get_batch(ProcessType.EVALUATION)
       self.cur_test_index += self.minibatch_size
       if self.cur_test_index > len(self.test_texts) - self.minibatch_size:
         self.cur_test_index = 0
       yield ret
 
   def load_train_data(self, desc_file='train_corpus.json', cmvn_samples=100):
-    self.load_metadata_from_desc_file(desc_file, Constants.TRAINING)
+    self.load_metadata_from_desc_file(desc_file, ProcessType.TRAINING)
     if self.feats_mean is None or self.feats_std is None:
       self.feats_mean, self.feats_std = self.fit_train(cmvn_samples)
-      np.savetxt(desc_file+".mean", self.feats_mean)
-      np.savetxt(desc_file+".std", self.feats_std)
-      self.logger.info("mean: %s", desc_file+".mean")
-      self.logger.info("std: %s", desc_file+".std")
+      cmvn_mean_file = desc_file.replace(".json", "") + "_" + \
+                       self.feat_type + ".mean"
+      cmvn_std_file = desc_file.replace(".json", "") + "_" + \
+                      self.feat_type + ".std"
+      np.savetxt(cmvn_mean_file, self.feats_mean)
+      np.savetxt(cmvn_std_file, self.feats_std)
+      self.logger.info("mean: %s", cmvn_mean_file)
+      self.logger.info("std: %s", cmvn_std_file)
 
   def load_validation_data(self, desc_file='valid_corpus.json'):
-    self.load_metadata_from_desc_file(desc_file, Constants.VALIDATION)
+    self.load_metadata_from_desc_file(desc_file, ProcessType.VALIDATION)
 
   def load_test_data(self, desc_file='test_corpus.json'):
-    self.load_metadata_from_desc_file(desc_file, Constants.EVALUATION)
+    self.load_metadata_from_desc_file(desc_file, ProcessType.EVALUATION)
 
   def load_metadata_from_desc_file(self, desc_file, partition):
     """ Read metadata from a JSON-line file
@@ -195,22 +201,22 @@ class AudioGenerator(object):
           # json module version
           self.logger.error('Error reading line #{}: {}, {}'
                             .format(line_num, json_line, err.msg))
-    if partition == Constants.TRAINING:
+    if partition == ProcessType.TRAINING:
       self.train_audio_paths = audio_paths
       self.train_durations = durations
       self.train_texts = texts
-    elif partition == Constants.VALIDATION:
+    elif partition == ProcessType.VALIDATION:
       self.valid_audio_paths = audio_paths
       self.valid_durations = durations
       self.valid_texts = texts
-    elif partition == Constants.EVALUATION:
+    elif partition == ProcessType.EVALUATION:
       self.test_audio_paths = audio_paths
       self.test_durations = durations
       self.test_texts = texts
     else:
       raise Exception("Invalid partition to load metadata. Must be %s/%s/%s"
-                      % (Constants.TRAINING, Constants.VALIDATION,
-                         Constants.EVALUATION))
+                      % (ProcessType.TRAINING, ProcessType.VALIDATION,
+                         ProcessType.EVALUATION))
 
   def fit_train(self, k_samples=100):
     """ Estimate the mean and std of the features from the training set
@@ -230,9 +236,11 @@ class AudioGenerator(object):
     feats = np.vstack(feats)
     return np.mean(feats, axis=0), np.std(feats, axis=0)
 
-  def mfcc_graves_2012(self, wav_path):
+  def graves_2012(self, wav_path):
     """
-    A. Graves, Sequence Transduction with Recurrent Neural Networks, 2012
+    Alex. Graves:
+    Sequence Transduction with Recurrent Neural Networks.
+    CoRR abs/1211.3711 (2012)
 
     MFCC features
     Standard speech preprocessing was applied to transform the audio files into
@@ -245,30 +253,70 @@ class AudioGenerator(object):
     and all coefficient were normalised to have mean zero and standard deviat-
     ion one over the train- ing set. ==> please set --prep-cmvn-samples to -1.
 
-    For convenience, I set numcep to 13 and appendEnergy to True.
-    I leave as default the other options which were not mentioned in the paper
+    I left as default the other options which were not mentioned in the paper
     such as nfft, lowfreq, highfreq, ceplifter, etc.
 
     :param wav_path: wav file path
     :return: a feature sequence
     """
     (rate, sig) = wav.read(Util.get_file_path(self.basepath, wav_path))
+    # computing features
     mfcc_feat = \
-      mfcc(signal=sig, samplerate=rate, numcep=13, winlen=0.025, nfilt=26,
-           winstep=0.01, preemph=0.97, appendEnergy=True, winfunc=np.hamming)
-    delta_feat = delta(mfcc_feat, 1)
-    delta_mfcc_feat = np.concatenate((mfcc_feat, delta_feat), axis=1)
-    return delta_mfcc_feat
+      mfcc(signal=sig, samplerate=rate, numcep=12, winlen=0.025, nfilt=26,
+           winstep=0.01, preemph=0.97, appendEnergy=False, winfunc=np.hamming)
+    # adding energy
+    energy = np.expand_dims(np.sum(np.power(mfcc_feat, 2), axis=-1), 1)
+    mfcc_e_feat = np.concatenate((energy, mfcc_feat), axis=-1)
+    # concatenating a delta vector
+    delta_feat = delta(mfcc_e_feat, 1)
+    return np.concatenate((mfcc_e_feat, delta_feat), axis=1)
+
+  def graves_2013(self, wav_path):
+    """
+    Alex Graves, Abdel-rahman Mohamed, Geoffrey E. Hinton:
+    Speech recognition with deep recurrent neural networks.
+    ICASSP 2013: 6645-6649
+
+    FBANK features : (40 fbank, 1 energy * 3)
+    The audio data was encoded using a Fourier-transform-based filter-bank with
+    40 coefficients (plus energy) distributed on a mel-scale, together with their
+    first and second temporal derivatives. Each input vector was therefore size 123.
+
+    For CMVN
+    The data were normalised so that every element of the input vec- tors had
+    zero mean and unit variance over the training set.
+
+    there is not description about window I chose to use a hanning window.
+
+    I left as default the other options which were not mentioned in the paper
+    such as nfft, lowfreq, highfreq, ceplifter, etc.
+
+    :param wav_path: wav file path
+    :return: a feature sequence
+    """
+    (rate, sig) = wav.read(Util.get_file_path(self.basepath, wav_path))
+    # computing features
+    fbank_feat, _ = \
+      fbank(signal=sig, samplerate=rate, nfilt=40, winfunc=np.hanning)
+
+    # adding energy
+    energy = np.expand_dims(np.sum(np.power(fbank_feat, 2), axis=-1), 1)
+    fbank_e_feat = np.concatenate((energy, fbank_feat), axis=-1)
+    # concatenating delta vectors
+    delta_feat = delta(fbank_e_feat, 1)
+    delta_delta_feat = delta(fbank_e_feat, 2)
+    return np.concatenate((fbank_e_feat, delta_feat, delta_delta_feat), axis=1)
 
   def featurize(self, wav_path):
     """ For a given audio clip, calculate the corresponding feature
     Params:
       audio_clip (str): Path to the audio clip
     """
-    if self.feat_type == Constants.FEAT_MFCC:
-      return self.mfcc_graves_2012(wav_path)
-
-    if self.feat_type == Constants.FEAT_FBANK:
+    if self.feat_type == Constants.FEAT_GRAVES12:
+      return self.graves_2012(wav_path)
+    elif self.feat_type == Constants.FEAT_GRAVES13:
+      return self.graves_2013(wav_path)
+    elif self.feat_type == Constants.FEAT_FBANK:
       fbank_feat = \
         Util.get_fbanks(Util.get_file_path(self.basepath, wav_path),
                         frame_size=0.025, frame_stride=0.01,
@@ -308,21 +356,21 @@ class AudioGeneratorForRNNT(AudioGenerator):
       :param partition: the type of this batch
       :return: input data for rnnt
     """
-    if partition == Constants.TRAINING:
+    if partition == ProcessType.TRAINING:
       audio_paths = self.train_audio_paths
       cur_index = self.cur_train_index
       texts = self.train_texts
-    elif partition == Constants.VALIDATION:
+    elif partition == ProcessType.VALIDATION:
       audio_paths = self.valid_audio_paths
       cur_index = self.cur_valid_index
       texts = self.valid_texts
-    elif partition == Constants.EVALUATION:
+    elif partition == ProcessType.EVALUATION:
       audio_paths = self.test_audio_paths
       cur_index = self.cur_test_index
       texts = self.test_texts
     else:
       raise Exception("Invalid partition. Must be %s/%s"%
-                      (Constants.TRAINING, Constants.VALIDATION))
+                      (ProcessType.TRAINING, ProcessType.VALIDATION))
 
     # extracting features
     features = [self.normalize(self.featurize(a)) for a in
@@ -384,21 +432,21 @@ class AudioGeneratorForCTC(AudioGenerator):
   def get_batch(self, partition):
     """ Obtain a batch of train, validation, or test data
     """
-    if partition == Constants.TRAINING:
+    if partition == ProcessType.TRAINING:
       audio_paths = self.train_audio_paths
       cur_index = self.cur_train_index
       texts = self.train_texts
-    elif partition == Constants.VALIDATION:
+    elif partition == ProcessType.VALIDATION:
       audio_paths = self.valid_audio_paths
       cur_index = self.cur_valid_index
       texts = self.valid_texts
-    elif partition == Constants.EVALUATION:
+    elif partition == ProcessType.EVALUATION:
       audio_paths = self.test_audio_paths
       cur_index = self.cur_test_index
       texts = self.test_texts
     else:
       raise Exception("Invalid partition. Must be %s/%s"%
-                      (Constants.TRAINING, Constants.VALIDATION))
+                      (ProcessType.TRAINING, ProcessType.VALIDATION))
 
     # extracting features
     features = [self.normalize(self.featurize(a)) for a in

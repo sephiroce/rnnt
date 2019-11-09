@@ -14,10 +14,13 @@ import numpy as np
 
 from keras.models import model_from_json, Model
 from keras.optimizers import SGD
+from keras.layers import Input
 
 from rnnt.base.util import Util
 from rnnt.base.common import Constants, Logger, ParseOption
 from rnnt.base.data_generator import AudioGeneratorForRNNT
+
+from rnnt.keras_model import KerasModel
 
 class Sequence(object):
   """
@@ -36,6 +39,11 @@ class Sequence(object):
 
 class KerasRNNTDecoder(object):
   def __init__(self, vocab, config):
+    """
+
+    :param vocab:
+    :param config:
+    """
     self.vocab_size = len(vocab)
     self.blank = self.vocab_size
 
@@ -52,17 +60,37 @@ class KerasRNNTDecoder(object):
       input_pred = model.get_layer(Constants.INPUT_PREDS).input
       output_tran = model.get_layer(Constants.OUTPUT_TRANS).output
       output_pred = model.get_layer(Constants.OUTPUT_PREDS).output
-
       self.encoder = \
         Model(inputs=input_tran, outputs=output_tran, name="encoder")
       self.decoder = \
         Model(inputs=input_pred, outputs=output_pred, name="decoder")
-      self.encoder.compile(loss="categorical_crossentropy",
-                           optimizer=SGD(lr=0.0))
-      self.decoder.compile(loss="categorical_crossentropy",
-                           optimizer=SGD(lr=0.0))
       self.encoder.summary()
       self.decoder.summary()
+
+      if config.joint_number_of_layer > 0 and config.joint_layer_size:
+        for _ in range(4):
+          model.layers.pop()
+
+        for _ in range(5):
+          model.layers.pop(0)
+
+        input_joint = Input(name=Constants.INPUT_JOINT,
+                            shape=[config.encoder_layer_size * 2 +
+                                   config.decoder_layer_size])
+
+        acts = KerasModel.get_fc_decode(input_joint,
+                                        len(vocab) + 1,
+                                        config.joint_layer_size,
+                                        config.joint_number_of_layer)
+
+        self.jointfc = Model(inputs=input_joint, outputs=acts, name="joint")
+        self.jointfc.set_weights(model.get_weights())
+        self.jointfc.compile(loss="categorical_crossentropy",
+                             optimizer=SGD(lr=0.0))
+        self.jointfc.summary()
+        self.is_joint = True
+      else:
+        self.is_joint = False
 
   def beam_search(self, feature_seq, beam_size=10): # pylint: disable=too-many-branches
     """
@@ -120,14 +148,27 @@ class KerasRNNTDecoder(object):
           # Pr(y|y_hat, t)
           cur_seq = np.array([Util.one_hot(y_star.hyp, self.vocab_size)])
           pred = np.squeeze(self.decoder.predict(cur_seq)[:, -1, :])
+          if self.is_joint:
+            out = np.concatenate((encoder_output_t, pred), axis=-1)
+            out = np.expand_dims(out, 0)
+            out = self.jointfc.predict(out)[-1, :]
+          else:
+            out = pred + encoder_output_t
 
-          idx = len(y_star.hyp)
-          logp = Util.softmax(pred + encoder_output_t, is_log=True)
+          logp = Util.softmax(out, is_log=True)
+
           # current log prob = Pr(y_hat) * Pr(y|y_hat,t)
+          idx = len(y_star.hyp)
           curlogp = y_star.logp + float(logp[y.hyp[idx]])
           # sum
           for k_idx in range(idx, len(y.hyp) - 1):
-            logp = Util.softmax(y.dist[k_idx] + encoder_output_t, is_log=True, axis=0)
+            if self.is_joint:
+              out = np.concatenate((encoder_output_t, y.dist[k_idx]), axis=-1)
+              out = np.expand_dims(out, 0)
+              out = self.jointfc.predict(out)[-1, :]
+            else:
+              out = y.dist[k_idx] + encoder_output_t
+            logp = Util.softmax(out, is_log=True, axis=0)
             curlogp += float(logp[y.hyp[k_idx + 1]])
           y.logp = max(y.logp, curlogp) + math.log1p(math.exp(-math.fabs(y.logp - curlogp)))
       # LINE7: end for
@@ -151,7 +192,14 @@ class KerasRNNTDecoder(object):
         # in order to get last label and hidden state
         cur_seq = np.array([Util.one_hot(y_star.hyp, self.vocab_size)])
         pred = np.squeeze(self.decoder.predict(cur_seq)[:, -1, :])
-        logp = Util.softmax(pred + encoder_output_t, is_log=True)
+        if self.is_joint:
+          out = np.concatenate((encoder_output_t, pred), axis=-1)
+          out = np.expand_dims(out, 0)
+          out = self.jointfc.predict(out)[-1, :]
+        else:
+          out = pred + encoder_output_t
+
+        logp = Util.softmax(out, is_log=True)
 
         # LINE13: for k \in vocab: for all vocabs
         for token_id in range(self.vocab_size + 1):

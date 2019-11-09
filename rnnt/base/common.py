@@ -8,49 +8,64 @@ __author__ = "Kyungmin Lee"
 __email__ = "sephiroce@snu.ac.kr"
 
 from enum import Enum
+
 import logging
 import os
 import sys
 import argparse
 
 class Constants(object): # pylint: disable=no-init
-  TRAINING = "Train"
-  VALIDATION = "Valid"
-  EVALUATION = "Test"
-  EMPTY = "__empty__"
-  EPS = '<eps>'
+  # Special tokens
   SPACE = '<SPACE>'
   UNK = 'u'
   BOS = '<s>'
   EOS = '</s>'
+
+  # Token unit
+  WORD = 'word'
+  CHAR = 'char'
+
+  # Json
   DURATION = 'duration'
   KEY = 'key'
   TEXT = 'text'
-  LOG_FBANK = 'log_filterbank'
-  VAL_LOSS = 'val_loss'
-  WORD = 'word'
-  CHAR = 'char'
-  BI_DIRECTION = 'bi'
 
-  KEY_CTCDE = 'KEY_CTCDE'
-
+  # Model
   INPUT_TRANS = 'INPUT_TRANS'
   INPUT_PREDS = 'INPUT_PREDS'
   INPUT_LABEL = 'INPUT_LABEL'
   INPUT_INLEN = 'INPUT_INLEN'
   INPUT_LBLEN = 'INPUT_LBLEN'
+  INPUT_JOINT = 'INPUT_JOINT'
+
   OUTPUT_TRANS = 'OUTPUT_TRANS'
   OUTPUT_PREDS = 'OUTPUT_PREDS'
+  OUTPUT_JOINT = 'OUTPUT_JOINT'
 
   LOSS_CTC = 'LOSS_CTC'
   LOSS_RNNT = 'LOSS_RNNT'
 
-  FEAT_MFCC = 'mfcc'
+  # Features
+  # Alex. Graves:
+  # Sequence Transduction with Recurrent Neural Networks.
+  # CoRR abs/1211.3711 (2012)
+  FEAT_GRAVES12 = 'graves12'
+  # Alex Graves, Abdel-rahman Mohamed, Geoffrey E. Hinton:
+  # Speech recognition with deep recurrent neural networks.
+  # ICASSP 2013: 6645-6649
+  FEAT_GRAVES13 = 'graves13'
+
   FEAT_FBANK = 'fbank'
 
-  CTC = "CTC"
-  RNNT = "RNNT"
-  RNNT_FF = "RNNT_FF"
+class ModelType(Enum):
+  CTC = 0
+  RNNT = 1
+  RNNT_FF = 2
+
+class ProcessType(Enum):
+  TRAINING = 0
+  VALIDATION = 1
+  EVALUATION = 2
 
 class OutputType(Enum):
   SOFTMAX = 0
@@ -332,8 +347,8 @@ class ParseOption(object):
     # Feature
     feature_group = parser.add_argument_group(title="feature",
                                               description="speech feature")
-    feature_group.add_argument("--feature-type", default="mfcc",
-                               help="mfcc or fbank")
+    feature_group.add_argument("--feature-type", default="fbank",
+                               help="fbank, graves12, graves13")
     feature_group.add_argument("--feature-dimension", type=int, default=40,
                                help="feature dimension")
 
@@ -402,12 +417,3 @@ class ParseOption(object):
     device_group.add_argument("--device-number-of-gpu", type=int, default=1)
 
     return parser
-
-def main():
-  logger = Logger(name="RNN-T Configurations", level=Logger.DEBUG).logger
-
-  # Configurations
-  ParseOption(sys.argv, logger)
-
-if __name__ == "__main__":
-  main()

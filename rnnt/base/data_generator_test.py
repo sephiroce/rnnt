@@ -12,7 +12,6 @@ from rnnt.base.common import Logger, ParseOption, ExitCode
 __author__ = "Kyungmin Lee"
 __email__ = "sephiroce@snu.ac.kr"
 
-
 def main():
   logger = Logger(name="Audio Data generator test", level=Logger.INFO).logger
   sys.argv.append("--config=test.conf")
@@ -26,6 +25,7 @@ def main():
     sys.exit(ExitCode.INVALID_FILE_PATH)
   vocab, _ = Util.load_vocab(vocab_path, config=config)
 
+  config.feature_type = 'graves12'
   audio_gen = AudioGeneratorForCTC(logger, config, vocab)
   audio_gen.load_train_data("rnnt/base/test/test_corpus.json")
 
